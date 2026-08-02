@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vitals — Health Tracker</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/icons/icon-180.png">
+<meta name="theme-color" content="#D24136">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<style>
+  :root {
+    --ink: #FAF3E9;
+    --surface: #FFFFFF;
+    --surface-2: #FBEEDF;
+    --line: #E9D6BC;
+    --text: #3A2A1E;
+    --text-dim: #9C7F63;
+    --terracotta: #D24136;
+    --honey: #EB8A3E;
+    --biscotti: #EBB582;
+    --stone: #785A46;
+    --amber: #EB8A3E;
+    --teal: #4A7A6D;
+    --coral: #D24136;
+    --violet: #785A46;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ink);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 80px; }
+
+  header { margin-bottom: 28px; }
+  header .eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--teal);
+  }
+  header h1 { font-size: 28px; margin: 6px 0 0; font-weight: 600; }
+  header .date { font-family: 'IBM Plex Mono', monospace; color: var(--text-dim); font-size: 13px; margin-top: 4px; }
+
+  .vitals {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 28px;
+  }
+  .vital { background: var(--surface); padding: 16px 14px; }
+  .vital .label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; }
+  .vital .value { font-family: 'IBM Plex Mono', monospace; font-size: 24px; font-weight: 500; margin-top: 4px; color: var(--text); }
+  .vital .value .unit { font-size: 12px; color: var(--text-dim); margin-left: 3px; }
+  .vital .delta { font-size: 11px; margin-top: 3px; font-family: 'IBM Plex Mono', monospace; }
+  .delta.pos { color: var(--coral); }
+  .delta.neg { color: var(--teal); }
+
+  section { margin-bottom: 32px; }
+  h2 {
+    font-size: 13px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim);
+    font-weight: 600; margin: 0 0 12px; font-family: 'IBM Plex Mono', monospace;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+
+  form.entry {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; align-items: end;
+  }
+  form.entry .note-field { grid-column: 1 / -1; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 11px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; }
+  .field input, .field select {
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; color: var(--text);
+    padding: 9px 10px; font-family: 'IBM Plex Mono', monospace; font-size: 14px; width: 100%;
+  }
+  .field input:focus, .field select:focus { outline: none; border-color: var(--amber); }
+  button.save {
+    grid-column: 1 / -1; background: var(--amber); color: #1a1206; border: none; border-radius: 6px;
+    padding: 11px; font-weight: 600; font-size: 14px; cursor: pointer; margin-top: 4px;
+  }
+  button.save:hover { filter: brightness(1.08); }
+  button.save:active { transform: translateY(1px); }
+
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 640px) { .charts { grid-template-columns: 1fr; } }
+  .chart-card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .chart-card h3 { font-size: 12px; color: var(--text-dim); margin: 0 0 10px; font-family: 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; }
+
+  table.log { width: 100%; border-collapse: collapse; font-family: 'IBM Plex Mono', monospace; font-size: 13px; }
+  table.log th, table.log td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  table.log th { color: var(--text-dim); font-weight: 500; font-size: 11px; text-transform: uppercase; }
+  table.log tr:hover { background: var(--surface-2); }
+  table.log button.del { background: none; border: none; color: var(--coral); cursor: pointer; font-family: inherit; font-size: 12px; }
+  table.log td.note { color: var(--text-dim); font-family: 'IBM Plex Sans', sans-serif; font-size: 12px; }
+
+  .empty { color: var(--text-dim); font-size: 13px; padding: 14px 0; }
+  .status { font-size: 12px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; margin-top: 8px; min-height: 16px; }
+
+  .lab-select {
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; color: var(--text);
+    padding: 6px 10px; font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Health Tracker</div>
+    <h1>Vitals</h1>
+    <div class="date" id="today"></div>
+  </header>
+
+  <div class="vitals" id="vitals"></div>
+
+  <section>
+    <h2>Eintrag erfassen</h2>
+    <form class="entry" id="entryForm">
+      <div class="field"><label>Datum</label><input type="date" name="entry_date" required></div>
+      <div class="field"><label>Gewicht (kg)</label><input type="number" step="0.1" name="weight_kg"></div>
+      <div class="field"><label>Körperfett (%)</label><input type="number" step="0.1" name="body_fat_pct"></div>
+      <div class="field"><label>Muskel (%)</label><input type="number" step="0.1" name="muscle_pct"></div>
+      <div class="field"><label>Körperwasser (%)</label><input type="number" step="0.1" name="body_water_pct"></div>
+      <div class="field"><label>RR systolisch</label><input type="number" name="bp_systolic"></div>
+      <div class="field"><label>RR diastolisch</label><input type="number" name="bp_diastolic"></div>
+      <div class="field"><label>Puls</label><input type="number" name="pulse"></div>
+      <div class="field note-field"><label>Notiz</label><input type="text" name="note" placeholder="z.B. Beginn Metformin"></div>
+      <button class="save" type="submit">Speichern</button>
+      <div class="status" id="formStatus"></div>
+    </form>
+  </section>
+
+  <section>
+    <h2>Verlauf</h2>
+    <div class="charts">
+      <div class="chart-card"><h3>Gewicht</h3><canvas id="chartWeight" height="140"></canvas></div>
+      <div class="chart-card"><h3>Körperzusammensetzung</h3><canvas id="chartComp" height="140"></canvas></div>
+      <div class="chart-card"><h3>Blutdruck & Puls</h3><canvas id="chartBP" height="140"></canvas></div>
+      <div class="chart-card">
+        <h3 style="display:flex; justify-content:space-between; align-items:center;">
+          Blutwerte
+          <select class="lab-select" id="labSelect"></select>
+        </h3>
+        <canvas id="chartLab" height="140"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Blutwerte erfassen</h2>
+    <form class="entry" id="labForm">
+      <div class="field"><label>Datum</label><input type="date" name="entry_date" required></div>
+      <div class="field"><label>Test</label><input type="text" name="test_name" list="testNames" placeholder="z.B. Testosteron" required></div>
+      <datalist id="testNames"></datalist>
+      <div class="field"><label>Wert</label><input type="number" step="any" name="value" required></div>
+      <div class="field"><label>Einheit</label><input type="text" name="unit" list="unitList" placeholder="z.B. nmol/l"></div>
+      <datalist id="unitList">
+        <option value="mmol/l"><option value="nmol/l"><option value="mg/dl"><option value="µg/l">
+        <option value="U/l"><option value="ng/ml"><option value="pg/ml"><option value="g/dl">
+        <option value="%"><option value="mIU/l">
+      </datalist>
+      <div class="field note-field"><label>Notiz</label><input type="text" name="note" placeholder="z.B. Beginn Metformin"></div>
+      <button class="save" type="submit">Blutwert speichern</button>
+      <div class="status" id="labFormStatus"></div>
+    </form>
+  </section>
+
+  <section>
+    <h2>Log — Vitals</h2>
+    <div id="logWrap"><div class="empty">Lädt…</div></div>
+  </section>
+
+  <section>
+    <h2>Log — Blutwerte</h2>
+    <div id="labLogWrap"><div class="empty">Lädt…</div></div>
+  </section>
+</div>
+
+<script>
+const todayEl = document.getElementById('today');
+todayEl.textContent = new Date().toLocaleDateString('de-AT', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+document.querySelector('#entryForm input[name=entry_date]').value = new Date().toISOString().slice(0,10);
+document.querySelector('#labForm input[name=entry_date]').value = new Date().toISOString().slice(0,10);
+
+let goals = {};
+let data = [];
+let labs = [];
+let charts = {};
+let selectedLabTest = null;
+
+async function loadGoals() {
+  goals = await fetch('/api/goals').then(r => r.json());
+}
+
+async function loadData() {
+  data = await fetch('/api/metrics').then(r => r.json());
+  renderVitals();
+  renderCharts();
+  renderLog();
+}
+
+async function loadLabs() {
+  labs = await fetch('/api/labs').then(r => r.json());
+  const testNames = [...new Set(labs.map(l => l.test_name))].sort();
+  const datalist = document.getElementById('testNames');
+  datalist.innerHTML = testNames.map(n => `<option value="${n}">`).join('');
+
+  const select = document.getElementById('labSelect');
+  const prevSelection = selectedLabTest;
+  select.innerHTML = testNames.map(n => `<option value="${n}">${n}</option>`).join('');
+  if (testNames.length) {
+    selectedLabTest = testNames.includes(prevSelection) ? prevSelection : testNames[0];
+    select.value = selectedLabTest;
+  } else {
+    selectedLabTest = null;
+  }
+  renderLabChart();
+  renderLabLog();
+}
+
+document.getElementById('labSelect').addEventListener('change', (e) => {
+  selectedLabTest = e.target.value;
+  renderLabChart();
+});
+
+function renderVitals() {
+  const latest = data[0];
+  const prev = data[1];
+  const el = document.getElementById('vitals');
+  if (!latest) { el.innerHTML = '<div class="empty" style="padding:16px">Noch keine Einträge — leg unten los.</div>'; return; }
+
+  const rows = [
+    { label: 'Gewicht', v: latest.weight_kg, unit: 'kg', pv: prev?.weight_kg, lowerBetter: true },
+    { label: 'Körperfett', v: latest.body_fat_pct, unit: '%', pv: prev?.body_fat_pct, lowerBetter: true },
+    { label: 'Muskel', v: latest.muscle_pct, unit: '%', pv: prev?.muscle_pct, lowerBetter: false },
+    { label: 'Körperwasser', v: latest.body_water_pct, unit: '%', pv: prev?.body_water_pct, lowerBetter: false },
+    { label: 'Blutdruck', v: latest.bp_systolic && latest.bp_diastolic ? `${latest.bp_systolic}/${latest.bp_diastolic}` : null, unit: 'mmHg' },
+    { label: 'Puls', v: latest.pulse, unit: 'bpm' },
+  ];
+
+  el.innerHTML = rows.map(r => {
+    let delta = '';
+    if (r.pv != null && r.v != null && typeof r.v === 'number') {
+      const diff = (r.v - r.pv).toFixed(1);
+      const improving = r.lowerBetter ? diff < 0 : diff > 0;
+      delta = `<div class="delta ${improving ? 'neg' : 'pos'}">${diff > 0 ? '+' : ''}${diff} vs. letzter Eintrag</div>`;
+    }
+    return `<div class="vital">
+      <div class="label">${r.label}</div>
+      <div class="value">${r.v ?? '—'}${r.v != null ? `<span class="unit">${r.unit}</span>` : ''}</div>
+      ${delta}
+    </div>`;
+  }).join('');
+}
+
+function buildChart(id, values, opts = {}) {
+  const ctx = document.getElementById(id);
+  if (charts[id]) charts[id].destroy();
+  const asc = [...data].reverse();
+  charts[id] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: asc.map(d => d.entry_date.slice(5)),
+      datasets: values.map(v => ({
+        label: v.label,
+        data: asc.map(d => d[v.key]),
+        borderColor: v.color,
+        backgroundColor: v.color + '33',
+        spanGaps: true,
+        tension: 0.3,
+        pointRadius: 2,
+        fill: v.fill || false,
+      }))
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: values.length > 1, labels: { color: '#9C7F63', font: { family: 'IBM Plex Mono', size: 10 } } } },
+      scales: {
+        x: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } },
+        y: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } }
+      }
+    }
+  });
+}
+
+function renderCharts() {
+  if (!data.length) return;
+  buildChart('chartWeight', [{ key: 'weight_kg', label: 'kg', color: '#EB8A3E', fill: true }]);
+  buildChart('chartComp', [
+    { key: 'body_fat_pct', label: 'Fett %', color: '#D24136' },
+    { key: 'muscle_pct', label: 'Muskel %', color: '#EB8A3E' },
+    { key: 'body_water_pct', label: 'Wasser %', color: '#4A7A6D' },
+  ]);
+  buildChart('chartBP', [
+    { key: 'bp_systolic', label: 'systolisch', color: '#D24136' },
+    { key: 'bp_diastolic', label: 'diastolisch', color: '#EB8A3E' },
+    { key: 'pulse', label: 'Puls', color: '#4A7A6D' },
+  ]);
+}
+
+function renderLabChart() {
+  const ctx = document.getElementById('chartLab');
+  if (charts.chartLab) charts.chartLab.destroy();
+  if (!selectedLabTest) return;
+
+  const entries = labs.filter(l => l.test_name === selectedLabTest).slice().reverse();
+  const unit = entries[entries.length - 1]?.unit || '';
+
+  charts.chartLab = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: entries.map(e => e.entry_date),
+      datasets: [{
+        label: unit ? `${selectedLabTest} (${unit})` : selectedLabTest,
+        data: entries.map(e => e.value),
+        borderColor: '#785A46',
+        backgroundColor: '#785A4633',
+        tension: 0.3,
+        pointRadius: 3,
+        fill: true,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#9C7F63', font: { family: 'IBM Plex Mono', size: 10 } } } },
+      scales: {
+        x: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } },
+        y: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } }
+      }
+    }
+  });
+}
+
+function renderLog() {
+  const wrap = document.getElementById('logWrap');
+  if (!data.length) { wrap.innerHTML = '<div class="empty">Noch keine Einträge.</div>'; return; }
+  wrap.innerHTML = `<table class="log"><thead><tr>
+    <th>Datum</th><th>Gewicht</th><th>Fett %</th><th>Muskel %</th><th>Wasser %</th><th>RR</th><th>Puls</th><th>Notiz</th><th></th>
+  </tr></thead><tbody>
+  ${data.map(d => `<tr>
+    <td>${d.entry_date}</td>
+    <td>${d.weight_kg ?? '—'}</td>
+    <td>${d.body_fat_pct ?? '—'}</td>
+    <td>${d.muscle_pct ?? '—'}</td>
+    <td>${d.body_water_pct ?? '—'}</td>
+    <td>${d.bp_systolic && d.bp_diastolic ? `${d.bp_systolic}/${d.bp_diastolic}` : '—'}</td>
+    <td>${d.pulse ?? '—'}</td>
+    <td class="note">${d.note ?? ''}</td>
+    <td><button class="del" data-date="${d.entry_date}">löschen</button></td>
+  </tr>`).join('')}
+  </tbody></table>`;
+
+  wrap.querySelectorAll('.del').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await fetch(`/api/metrics?date=${btn.dataset.date}`, { method: 'DELETE' });
+      loadData();
+    });
+  });
+}
+
+function renderLabLog() {
+  const wrap = document.getElementById('labLogWrap');
+  if (!labs.length) { wrap.innerHTML = '<div class="empty">Noch keine Blutwerte erfasst.</div>'; return; }
+  wrap.innerHTML = `<table class="log"><thead><tr>
+    <th>Datum</th><th>Test</th><th>Wert</th><th>Einheit</th><th>Notiz</th><th></th>
+  </tr></thead><tbody>
+  ${labs.map(l => `<tr>
+    <td>${l.entry_date}</td>
+    <td>${l.test_name}</td>
+    <td>${l.value}</td>
+    <td>${l.unit ?? ''}</td>
+    <td class="note">${l.note ?? ''}</td>
+    <td><button class="del" data-id="${l.id}">löschen</button></td>
+  </tr>`).join('')}
+  </tbody></table>`;
+
+  wrap.querySelectorAll('.del').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await fetch(`/api/labs?id=${btn.dataset.id}`, { method: 'DELETE' });
+      loadLabs();
+    });
+  });
+}
+
+document.getElementById('entryForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const payload = {};
+  for (const [k, v] of fd.entries()) {
+    if (v === '') { payload[k] = null; continue; }
+    payload[k] = (k === 'entry_date' || k === 'note') ? v : Number(v);
+  }
+
+  const statusEl = document.getElementById('formStatus');
+  statusEl.textContent = 'speichert…';
+  const res = await fetch('/api/metrics', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  statusEl.textContent = res.ok ? 'gespeichert.' : 'Fehler beim Speichern.';
+  setTimeout(() => statusEl.textContent = '', 2000);
+  e.target.reset();
+  document.querySelector('#entryForm input[name=entry_date]').value = new Date().toISOString().slice(0,10);
+  loadData();
+});
+
+document.getElementById('labForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const payload = {
+    entry_date: fd.get('entry_date'),
+    test_name: fd.get('test_name'),
+    value: Number(fd.get('value')),
+    unit: fd.get('unit') || null,
+    note: fd.get('note') || null,
+  };
+
+  const statusEl = document.getElementById('labFormStatus');
+  statusEl.textContent = 'speichert…';
+  const res = await fetch('/api/labs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  statusEl.textContent = res.ok ? 'gespeichert.' : 'Fehler beim Speichern.';
+  setTimeout(() => statusEl.textContent = '', 2000);
+  e.target.reset();
+  document.querySelector('#labForm input[name=entry_date]').value = new Date().toISOString().slice(0,10);
+  loadLabs();
+});
+
+(async function init() {
+  await loadGoals();
+  await loadData();
+  await loadLabs();
+})();
+</script>
+</body>
+</html>
