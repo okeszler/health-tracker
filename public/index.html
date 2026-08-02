@@ -93,6 +93,13 @@
   }
   button.save:hover { filter: brightness(1.08); }
   button.save:active { transform: translateY(1px); }
+  button.cancel {
+    grid-column: 1 / -1; background: none; color: var(--text-dim); border: 1px solid var(--line); border-radius: 6px;
+    padding: 10px; font-weight: 500; font-size: 13px; cursor: pointer; margin-top: -2px;
+  }
+  button.cancel:hover { color: var(--text); border-color: var(--text-dim); }
+  table.log button.edit { background: none; border: none; color: var(--stone); cursor: pointer; font-family: inherit; font-size: 12px; margin-right: 10px; }
+  table.log tr.editing { background: var(--surface-2); }
 
   .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   @media (max-width: 640px) { .charts { grid-template-columns: 1fr; } }
@@ -137,7 +144,8 @@
       <div class="field"><label>RR diastolisch</label><input type="number" name="bp_diastolic"></div>
       <div class="field"><label>Puls</label><input type="number" name="pulse"></div>
       <div class="field note-field"><label>Notiz</label><input type="text" name="note" placeholder="z.B. Beginn Metformin"></div>
-      <button class="save" type="submit">Speichern</button>
+      <button class="save" type="submit" id="entrySaveBtn">Speichern</button>
+      <button class="cancel" type="button" id="entryCancelBtn" style="display:none">Abbrechen</button>
       <div class="status" id="formStatus"></div>
     </form>
   </section>
@@ -161,6 +169,7 @@
   <section>
     <h2>Blutwerte erfassen</h2>
     <form class="entry" id="labForm">
+      <input type="hidden" name="id" value="">
       <div class="field"><label>Datum</label><input type="date" name="entry_date" required></div>
       <div class="field"><label>Test</label><input type="text" name="test_name" list="testNames" placeholder="z.B. Testosteron" required></div>
       <datalist id="testNames"></datalist>
@@ -172,7 +181,8 @@
         <option value="%"><option value="mIU/l">
       </datalist>
       <div class="field note-field"><label>Notiz</label><input type="text" name="note" placeholder="z.B. Beginn Metformin"></div>
-      <button class="save" type="submit">Blutwert speichern</button>
+      <button class="save" type="submit" id="labSaveBtn">Blutwert speichern</button>
+      <button class="cancel" type="button" id="labCancelBtn" style="display:none">Abbrechen</button>
       <div class="status" id="labFormStatus"></div>
     </form>
   </section>
@@ -207,8 +217,8 @@ async function loadGoals() {
 async function loadData() {
   data = await fetch('/api/metrics').then(r => r.json());
   renderVitals();
-  renderCharts();
   renderLog();
+  try { renderCharts(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
 }
 
 async function loadLabs() {
@@ -226,8 +236,8 @@ async function loadLabs() {
   } else {
     selectedLabTest = null;
   }
-  renderLabChart();
   renderLabLog();
+  try { renderLabChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
 }
 
 document.getElementById('labSelect').addEventListener('change', (e) => {
@@ -358,7 +368,7 @@ function renderLog() {
     <td>${d.bp_systolic && d.bp_diastolic ? `${d.bp_systolic}/${d.bp_diastolic}` : '—'}</td>
     <td>${d.pulse ?? '—'}</td>
     <td class="note">${d.note ?? ''}</td>
-    <td><button class="del" data-date="${d.entry_date}">löschen</button></td>
+    <td><button class="edit" data-date="${d.entry_date}">bearbeiten</button><button class="del" data-date="${d.entry_date}">löschen</button></td>
   </tr>`).join('')}
   </tbody></table>`;
 
@@ -368,7 +378,41 @@ function renderLog() {
       loadData();
     });
   });
+
+  wrap.querySelectorAll('.edit').forEach(btn => {
+    btn.addEventListener('click', () => startEditEntry(btn.dataset.date));
+  });
 }
+
+function startEditEntry(entryDate) {
+  const row = data.find(d => d.entry_date === entryDate);
+  if (!row) return;
+  const form = document.getElementById('entryForm');
+  form.entry_date.value = row.entry_date;
+  form.weight_kg.value = row.weight_kg ?? '';
+  form.body_fat_pct.value = row.body_fat_pct ?? '';
+  form.muscle_pct.value = row.muscle_pct ?? '';
+  form.body_water_pct.value = row.body_water_pct ?? '';
+  form.bp_systolic.value = row.bp_systolic ?? '';
+  form.bp_diastolic.value = row.bp_diastolic ?? '';
+  form.pulse.value = row.pulse ?? '';
+  form.note.value = row.note ?? '';
+  form.entry_date.readOnly = true;
+  document.getElementById('entrySaveBtn').textContent = 'Aktualisieren';
+  document.getElementById('entryCancelBtn').style.display = 'block';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function resetEntryForm() {
+  const form = document.getElementById('entryForm');
+  form.reset();
+  form.entry_date.readOnly = false;
+  form.entry_date.value = new Date().toISOString().slice(0, 10);
+  document.getElementById('entrySaveBtn').textContent = 'Speichern';
+  document.getElementById('entryCancelBtn').style.display = 'none';
+}
+
+document.getElementById('entryCancelBtn').addEventListener('click', resetEntryForm);
 
 function renderLabLog() {
   const wrap = document.getElementById('labLogWrap');
@@ -382,7 +426,7 @@ function renderLabLog() {
     <td>${l.value}</td>
     <td>${l.unit ?? ''}</td>
     <td class="note">${l.note ?? ''}</td>
-    <td><button class="del" data-id="${l.id}">löschen</button></td>
+    <td><button class="edit" data-id="${l.id}">bearbeiten</button><button class="del" data-id="${l.id}">löschen</button></td>
   </tr>`).join('')}
   </tbody></table>`;
 
@@ -392,7 +436,37 @@ function renderLabLog() {
       loadLabs();
     });
   });
+
+  wrap.querySelectorAll('.edit').forEach(btn => {
+    btn.addEventListener('click', () => startEditLab(Number(btn.dataset.id)));
+  });
 }
+
+function startEditLab(id) {
+  const row = labs.find(l => l.id === id);
+  if (!row) return;
+  const form = document.getElementById('labForm');
+  form.id.value = row.id;
+  form.entry_date.value = row.entry_date;
+  form.test_name.value = row.test_name;
+  form.value.value = row.value;
+  form.unit.value = row.unit ?? '';
+  form.note.value = row.note ?? '';
+  document.getElementById('labSaveBtn').textContent = 'Blutwert aktualisieren';
+  document.getElementById('labCancelBtn').style.display = 'block';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function resetLabForm() {
+  const form = document.getElementById('labForm');
+  form.reset();
+  form.id.value = '';
+  form.entry_date.value = new Date().toISOString().slice(0, 10);
+  document.getElementById('labSaveBtn').textContent = 'Blutwert speichern';
+  document.getElementById('labCancelBtn').style.display = 'none';
+}
+
+document.getElementById('labCancelBtn').addEventListener('click', resetLabForm);
 
 document.getElementById('entryForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -412,14 +486,14 @@ document.getElementById('entryForm').addEventListener('submit', async (e) => {
   });
   statusEl.textContent = res.ok ? 'gespeichert.' : 'Fehler beim Speichern.';
   setTimeout(() => statusEl.textContent = '', 2000);
-  e.target.reset();
-  document.querySelector('#entryForm input[name=entry_date]').value = new Date().toISOString().slice(0,10);
+  resetEntryForm();
   loadData();
 });
 
 document.getElementById('labForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
+  const id = fd.get('id');
   const payload = {
     entry_date: fd.get('entry_date'),
     test_name: fd.get('test_name'),
@@ -427,18 +501,18 @@ document.getElementById('labForm').addEventListener('submit', async (e) => {
     unit: fd.get('unit') || null,
     note: fd.get('note') || null,
   };
+  if (id) payload.id = Number(id);
 
   const statusEl = document.getElementById('labFormStatus');
   statusEl.textContent = 'speichert…';
   const res = await fetch('/api/labs', {
-    method: 'POST',
+    method: id ? 'PUT' : 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
   statusEl.textContent = res.ok ? 'gespeichert.' : 'Fehler beim Speichern.';
   setTimeout(() => statusEl.textContent = '', 2000);
-  e.target.reset();
-  document.querySelector('#labForm input[name=entry_date]').value = new Date().toISOString().slice(0,10);
+  resetLabForm();
   loadLabs();
 });
 
