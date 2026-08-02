@@ -5,4 +5,4 @@ compatibility_date = "2024-09-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "health-tracker"
-database_id = "PASTE_DATABASE_ID_HERE"
+database_id = "8564ad9c-5d8f-4813-9c01-bc885f185c2c"
