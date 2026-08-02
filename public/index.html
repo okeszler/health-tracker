@@ -163,6 +163,7 @@
         </h3>
         <canvas id="chartLab" height="140"></canvas>
       </div>
+      <div class="chart-card"><h3>Blutfette</h3><canvas id="chartLipids" height="140"></canvas></div>
     </div>
   </section>
 
@@ -238,6 +239,7 @@ async function loadLabs() {
   }
   renderLabLog();
   try { renderLabChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
+  try { renderLipidsChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
 }
 
 document.getElementById('labSelect').addEventListener('change', (e) => {
@@ -342,6 +344,45 @@ function renderLabChart() {
         fill: true,
       }]
     },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#9C7F63', font: { family: 'IBM Plex Mono', size: 10 } } } },
+      scales: {
+        x: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } },
+        y: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } }
+      }
+    }
+  });
+}
+
+const LIPID_TESTS = ['Cholesterin ges.', 'LDL', 'HDL', 'Triglyceride'];
+const LIPID_COLORS = { 'Cholesterin ges.': '#D24136', 'LDL': '#EB8A3E', 'HDL': '#4A7A6D', 'Triglyceride': '#785A46' };
+
+function renderLipidsChart() {
+  const ctx = document.getElementById('chartLipids');
+  if (charts.chartLipids) charts.chartLipids.destroy();
+
+  const relevant = labs.filter(l => LIPID_TESTS.includes(l.test_name));
+  const dates = [...new Set(relevant.map(l => l.entry_date))].sort();
+  if (!dates.length) return;
+
+  const datasets = LIPID_TESTS.map(name => {
+    const byDate = {};
+    relevant.filter(l => l.test_name === name).forEach(l => { byDate[l.entry_date] = l.value; });
+    return {
+      label: name,
+      data: dates.map(d => byDate[d] ?? null),
+      borderColor: LIPID_COLORS[name],
+      backgroundColor: LIPID_COLORS[name] + '33',
+      spanGaps: true,
+      tension: 0.3,
+      pointRadius: 3,
+    };
+  }).filter(ds => ds.data.some(v => v != null));
+
+  charts.chartLipids = new Chart(ctx, {
+    type: 'line',
+    data: { labels: dates, datasets },
     options: {
       responsive: true,
       plugins: { legend: { labels: { color: '#9C7F63', font: { family: 'IBM Plex Mono', size: 10 } } } },
