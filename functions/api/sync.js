@@ -21,6 +21,7 @@ const CATEGORIES = [
   { key: "schlaf", folder: "Health Sync Schlaf" },
   { key: "aktivitaeten", folder: "Health Sync Aktivitäten" },
   { key: "gewicht", folder: "Health Sync Gewicht" },
+  { key: "blutdruck", folder: "Health Sync Blutdruck" },
 ];
 
 export async function onRequestGet({ env }) {
@@ -99,6 +100,7 @@ async function importRows(env, categoryKey, rows) {
   if (categoryKey === "schlaf") return importSchlaf(env, rows);
   if (categoryKey === "aktivitaeten") return importAktivitaeten(env, rows);
   if (categoryKey === "gewicht") return importGewicht(env, rows);
+  if (categoryKey === "blutdruck") return importBlutdruck(env, rows);
 }
 
 async function importPuls(env, rows) {
@@ -230,5 +232,26 @@ async function importGewicht(env, rows) {
      ON CONFLICT(entry_date) DO UPDATE SET weight_kg = excluded.weight_kg`
   );
   const batch = [...perDay.entries()].map(([date, w]) => stmt.bind(date, w));
+  if (batch.length) await env.DB.batch(batch);
+}
+
+// Die Blutdruck-Exportdateien sind Monats-/Wochen-Sammlungen, die sich überlappen
+// können (dieselbe Messung taucht in mehreren Dateien auf) -- deshalb Einzelzeilen
+// mit UNIQUE-Constraint statt Tages-Aggregation, INSERT OR IGNORE verhindert Dubletten.
+async function importBlutdruck(env, rows) {
+  const stmt = env.DB.prepare(
+    `INSERT OR IGNORE INTO sync_bp_readings (entry_date, reading_time, systolic, diastolic, pulse, note)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  );
+  const batch = [];
+  for (const r of rows) {
+    const { date, time } = splitHealthSyncTimestamp(r["Datum"]);
+    const systolic = toFloat(r["Systolisch"]);
+    const diastolic = toFloat(r["Diastolisch"]);
+    if (!date || systolic === null || diastolic === null) continue;
+    batch.push(
+      stmt.bind(date, time, systolic, diastolic, toFloat(r["Puls"]), r["Kommentar"] || null)
+    );
+  }
   if (batch.length) await env.DB.batch(batch);
 }

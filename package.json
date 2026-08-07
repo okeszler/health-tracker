@@ -7,7 +7,8 @@
     "deploy": "wrangler pages deploy public --project-name=health-tracker",
     "db:init": "wrangler d1 execute health-tracker --remote --file=schema.sql",
     "db:migrate": "wrangler d1 execute health-tracker --remote --file=migration_v2.sql",
-    "db:migrate-sync": "wrangler d1 execute health-tracker --remote --file=migration_sync.sql"
+    "db:migrate-sync": "wrangler d1 execute health-tracker --remote --file=migration_sync.sql",
+    "db:migrate-sync-bp": "wrangler d1 execute health-tracker --remote --file=migration_sync_bp.sql"
   },
   "devDependencies": {
     "wrangler": "^3.90.0"

@@ -16,6 +16,7 @@ Cloudflare Pages + D1, gleiches Muster wie die anderen Cloudflare-Apps
 - `migration_v2.sql` — nur nötig, falls du das ursprüngliche v1-Schema (mit Wasserzufuhr statt
   Blutwerten/Muskel%/Körperwasser%) schon deployed hattest
 - `migration_sync.sql` — Tabellen für den Health-Sync-Import (Schritte/Puls/Schlaf/Aktivitäten/Gewicht)
+- `migration_sync_bp.sql` — zusätzliche Tabelle für Health-Sync-Blutdruck (Samsung Health)
 - `wrangler.toml`, `package.json` — Konfiguration
 
 ## Passwortschutz
@@ -105,12 +106,14 @@ npm run db:migrate
 npm run deploy
 ```
 
-## Health Sync (Schritte, Puls, Schlaf, Aktivitäten) aus Google Drive
+## Health Sync (Schritte, Puls, Schlaf, Blutdruck, Aktivitäten) aus Google Drive
 
-Die App (Health Sync) synct dein Handy periodisch als CSV-Dateien in fünf Google-Drive-Ordner:
+Die App (Health Sync) synct dein Handy periodisch als CSV-Dateien in Google-Drive-Ordner:
 `Health Sync Puls`, `Health Sync Schritte`, `Health Sync Schlaf`, `Health Sync Aktivitäten`,
-`Health Sync Gewicht`. `health-tracker` liest diese über ein Google Service Account (read-only,
-kein OAuth-Login nötig) und aggregiert sie zu Tageswerten.
+`Health Sync Gewicht`, `Health Sync Blutdruck`. `health-tracker` liest diese über ein Google
+Service Account (read-only, kein OAuth-Login nötig) und aggregiert sie zu Tageswerten (Blutdruck
+und Aktivitäten bleiben Einzelmessungen, da mehrere pro Tag möglich sind). Legt Health Sync
+später weitere Ordner an, einfach in `functions/api/sync.js` bei `CATEGORIES` ergänzen.
 
 Setup — nutzt dasselbe Service Account wie `dagoberts-geldspeicher`
 (`dagoberts-geldspeicher@dagoberts-geldspeicher.iam.gserviceaccount.com`), nur mit zusätzlichem
@@ -122,13 +125,14 @@ Drive-Zugriff:
 2. **Neuen JSON-Key erzeugen** — **APIs & Dienste → Anmeldedaten**, das Service Account
    `dagoberts-geldspeicher@...` anklicken → Tab **Keys → Add Key → Create new key → JSON**
    → Datei wird heruntergeladen
-3. **Die 5 Ordner freigeben** — in Google Drive jeden der fünf `Health Sync ...`-Ordner öffnen
+3. **Die `Health Sync ...`-Ordner freigeben** — in Google Drive jeden einzeln öffnen
    (Rechtsklick im Drive-Explorer) → **Freigeben** → E-Mail
    `dagoberts-geldspeicher@dagoberts-geldspeicher.iam.gserviceaccount.com` eintragen, Rolle
    **Betrachter**, **Senden** (Benachrichtigung kann deaktiviert werden, das Konto liest keine Mails)
 4. **Schema einspielen:**
    ```powershell
    npm run db:migrate-sync
+   npm run db:migrate-sync-bp
    ```
 5. **Secret setzen** (kompletter Inhalt der heruntergeladenen JSON-Datei, eine Zeile):
    ```powershell
