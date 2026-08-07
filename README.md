@@ -17,6 +17,9 @@ Cloudflare Pages + D1, gleiches Muster wie die anderen Cloudflare-Apps
   Blutwerten/Muskel%/Körperwasser%) schon deployed hattest
 - `migration_sync.sql` — Tabellen für den Health-Sync-Import (Schritte/Puls/Schlaf/Aktivitäten/Gewicht)
 - `migration_sync_bp.sql` — zusätzliche Tabelle für Health-Sync-Blutdruck (Samsung Health)
+- `migration_sync_v2.sql` — stellt Schritte/Puls/Schlaf/Gewicht auf Einzelmessungen +
+  Live-Aggregation um (Health Sync ersetzt Tagesdateien periodisch komplett statt nur
+  neue Daten anzuhängen; das alte Akkumulations-Modell zählte dadurch doppelt)
 - `wrangler.toml`, `package.json` — Konfiguration
 
 ## Passwortschutz
@@ -133,6 +136,7 @@ Drive-Zugriff:
    ```powershell
    npm run db:migrate-sync
    npm run db:migrate-sync-bp
+   npm run db:migrate-sync-v2
    ```
 5. **Secret setzen** (kompletter Inhalt der heruntergeladenen JSON-Datei, eine Zeile):
    ```powershell

@@ -103,90 +103,52 @@ async function importRows(env, categoryKey, rows) {
   if (categoryKey === "blutdruck") return importBlutdruck(env, rows);
 }
 
+// Health Sync ersetzt seine Tagesdateien offenbar periodisch komplett durch eine
+// neue Datei mit neuer Drive-ID statt nur neue Minuten anzuhängen. Statt "bei jeder
+// neuen Datei draufaddieren" (zählt denselben Tag dann mehrfach) werden Einzel-
+// messungen mit UNIQUE-Constraint gespeichert -- Mehrfachimporte derselben Zeile
+// sind dadurch automatisch harmlos, Aggregation passiert live beim Lesen.
 async function importPuls(env, rows) {
-  const perDay = new Map();
-  for (const r of rows) {
-    const { date } = splitHealthSyncTimestamp(r["Datum"]);
-    const bpm = toFloat(r["Puls"]);
-    if (!date || bpm === null) continue;
-    const agg = perDay.get(date) || { sum: 0, count: 0, min: bpm, max: bpm };
-    agg.sum += bpm;
-    agg.count += 1;
-    agg.min = Math.min(agg.min, bpm);
-    agg.max = Math.max(agg.max, bpm);
-    perDay.set(date, agg);
-  }
   const stmt = env.DB.prepare(
-    `INSERT INTO sync_pulse_daily (entry_date, sum_bpm, samples, min_bpm, max_bpm)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(entry_date) DO UPDATE SET
-       sum_bpm = sum_bpm + excluded.sum_bpm,
-       samples = samples + excluded.samples,
-       min_bpm = MIN(min_bpm, excluded.min_bpm),
-       max_bpm = MAX(max_bpm, excluded.max_bpm)`
+    `INSERT OR IGNORE INTO sync_pulse_readings (entry_date, reading_time, bpm) VALUES (?, ?, ?)`
   );
-  const batch = [...perDay.entries()].map(([date, a]) =>
-    stmt.bind(date, a.sum, a.count, a.min, a.max)
-  );
+  const batch = [];
+  for (const r of rows) {
+    const { date, time } = splitHealthSyncTimestamp(r["Datum"]);
+    const bpm = toInt(r["Puls"]);
+    if (!date || bpm === null) continue;
+    batch.push(stmt.bind(date, time, bpm));
+  }
   if (batch.length) await env.DB.batch(batch);
 }
 
 async function importSchritte(env, rows) {
-  const perDay = new Map();
+  const stmt = env.DB.prepare(
+    `INSERT OR IGNORE INTO sync_steps_readings (entry_date, reading_time, steps) VALUES (?, ?, ?)`
+  );
+  const batch = [];
   for (const r of rows) {
-    const { date } = splitHealthSyncTimestamp(r["Datum"]);
+    const { date, time } = splitHealthSyncTimestamp(r["Datum"]);
     const steps = toInt(r["Schritte"]);
     if (!date || steps === null) continue;
-    perDay.set(date, (perDay.get(date) || 0) + steps);
+    batch.push(stmt.bind(date, time, steps));
   }
-  const stmt = env.DB.prepare(
-    `INSERT INTO sync_steps_daily (entry_date, steps) VALUES (?, ?)
-     ON CONFLICT(entry_date) DO UPDATE SET steps = steps + excluded.steps`
-  );
-  const batch = [...perDay.entries()].map(([date, steps]) => stmt.bind(date, steps));
   if (batch.length) await env.DB.batch(batch);
 }
 
-const SLEEP_STAGE_COLUMN = {
-  light: "light_seconds",
-  deep: "deep_seconds",
-  rem: "rem_seconds",
-  awake: "awake_seconds",
-};
-
 async function importSchlaf(env, rows) {
-  const perDay = new Map();
+  const stmt = env.DB.prepare(
+    `INSERT OR IGNORE INTO sync_sleep_readings (entry_date, reading_time, duration_seconds, stage) VALUES (?, ?, ?, ?)`
+  );
+  const batch = [];
   for (const r of rows) {
-    const { date } = splitHealthSyncTimestamp(r["Datum"]);
+    const { date, time } = splitHealthSyncTimestamp(r["Datum"]);
     const durationKey = Object.keys(r).find((k) => /sekund|second|urée|duration/i.test(k));
     const seconds = toInt(r[durationKey]);
-    const stage = (r["Schlafstadium"] || "").toLowerCase();
+    const stage = (r["Schlafstadium"] || "").toLowerCase() || null;
     if (!date || seconds === null) continue;
-    const agg =
-      perDay.get(date) || { total: 0, deep: 0, light: 0, rem: 0, awake: 0, other: 0 };
-    agg.total += seconds;
-    const bucket = SLEEP_STAGE_COLUMN[stage];
-    if (bucket === "deep_seconds") agg.deep += seconds;
-    else if (bucket === "light_seconds") agg.light += seconds;
-    else if (bucket === "rem_seconds") agg.rem += seconds;
-    else if (bucket === "awake_seconds") agg.awake += seconds;
-    else agg.other += seconds;
-    perDay.set(date, agg);
+    batch.push(stmt.bind(date, time, seconds, stage));
   }
-  const stmt = env.DB.prepare(
-    `INSERT INTO sync_sleep_daily (entry_date, total_seconds, deep_seconds, light_seconds, rem_seconds, awake_seconds, other_seconds)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(entry_date) DO UPDATE SET
-       total_seconds = total_seconds + excluded.total_seconds,
-       deep_seconds = deep_seconds + excluded.deep_seconds,
-       light_seconds = light_seconds + excluded.light_seconds,
-       rem_seconds = rem_seconds + excluded.rem_seconds,
-       awake_seconds = awake_seconds + excluded.awake_seconds,
-       other_seconds = other_seconds + excluded.other_seconds`
-  );
-  const batch = [...perDay.entries()].map(([date, a]) =>
-    stmt.bind(date, a.total, a.deep, a.light, a.rem, a.awake, a.other)
-  );
   if (batch.length) await env.DB.batch(batch);
 }
 
@@ -220,18 +182,16 @@ async function importAktivitaeten(env, rows) {
 }
 
 async function importGewicht(env, rows) {
-  const perDay = new Map();
+  const stmt = env.DB.prepare(
+    `INSERT OR IGNORE INTO sync_weight_readings (entry_date, reading_time, weight_kg) VALUES (?, ?, ?)`
+  );
+  const batch = [];
   for (const r of rows) {
-    const { date } = splitHealthSyncTimestamp(r["Datum"]);
+    const { date, time } = splitHealthSyncTimestamp(r["Datum"]);
     const weight = toFloat(r["Gewicht"] ?? r["Weight"]);
     if (!date || weight === null) continue;
-    perDay.set(date, weight); // letzter Wert des Tages gewinnt (Zeilen sind zeitlich sortiert)
+    batch.push(stmt.bind(date, time, weight));
   }
-  const stmt = env.DB.prepare(
-    `INSERT INTO sync_weight_daily (entry_date, weight_kg) VALUES (?, ?)
-     ON CONFLICT(entry_date) DO UPDATE SET weight_kg = excluded.weight_kg`
-  );
-  const batch = [...perDay.entries()].map(([date, w]) => stmt.bind(date, w));
   if (batch.length) await env.DB.batch(batch);
 }
 
