@@ -9,6 +9,13 @@
 <link rel="icon" href="/icons/icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="/icons/icon-180.png">
 <meta name="theme-color" content="#D24136">
+<script>
+  (function() {
+    var saved = localStorage.getItem('ht-theme');
+    var theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  })();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
@@ -28,6 +35,16 @@
     --teal: #4A7A6D;
     --coral: #D24136;
     --violet: #785A46;
+  }
+  html[data-theme="dark"] {
+    --ink: #1C140F;
+    --surface: #241A13;
+    --surface-2: #2E2117;
+    --line: #3D2C20;
+    --text: #F3E9DC;
+    --text-dim: #B79A80;
+    --teal: #6FB89C;
+    --coral: #E8564A;
   }
   * { box-sizing: border-box; }
   body {
@@ -129,14 +146,25 @@
   button.sync:hover { border-color: var(--honey); color: var(--honey); }
   button.sync:disabled { opacity: 0.6; cursor: default; }
   .sync-status { font-size: 12px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; }
+
+  header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+  button.theme-toggle {
+    background: var(--surface); border: 1px solid var(--line); color: var(--text-dim); border-radius: 999px;
+    width: 38px; height: 38px; font-size: 16px; cursor: pointer; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; margin-top: 2px;
+  }
+  button.theme-toggle:hover { border-color: var(--honey); color: var(--honey); }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <div class="eyebrow">Health Tracker</div>
-    <h1>Vitals</h1>
-    <div class="date" id="today"></div>
+    <div>
+      <div class="eyebrow">Health Tracker</div>
+      <h1>Vitals</h1>
+      <div class="date" id="today"></div>
+    </div>
+    <button class="theme-toggle" id="themeToggle" type="button" title="Farbschema wechseln" aria-label="Farbschema wechseln">🌙</button>
   </header>
 
   <div class="vitals" id="vitals"></div>
@@ -229,6 +257,34 @@
 </div>
 
 <script>
+function axisColor() { return getComputedStyle(document.documentElement).getPropertyValue('--text-dim').trim(); }
+function gridColor() { return getComputedStyle(document.documentElement).getPropertyValue('--line').trim(); }
+
+function currentTheme() { return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'; }
+
+function updateThemeToggleIcon() {
+  document.getElementById('themeToggle').textContent = currentTheme() === 'dark' ? '☀️' : '🌙';
+}
+
+function renderAllCharts() {
+  try { renderCharts(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
+  try { renderLabChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
+  try { renderLipidsChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
+  try { renderThyroidChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
+  try { renderSyncCharts(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
+}
+
+document.getElementById('themeToggle').addEventListener('click', () => {
+  const next = currentTheme() === 'dark' ? 'light' : 'dark';
+  if (next === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  else document.documentElement.removeAttribute('data-theme');
+  localStorage.setItem('ht-theme', next);
+  updateThemeToggleIcon();
+  renderAllCharts();
+});
+
+updateThemeToggleIcon();
+
 const todayEl = document.getElementById('today');
 todayEl.textContent = new Date().toLocaleDateString('de-AT', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 document.querySelector('#entryForm input[name=entry_date]').value = new Date().toISOString().slice(0,10);
@@ -328,10 +384,10 @@ function buildChart(id, values, opts = {}) {
     },
     options: {
       responsive: true,
-      plugins: { legend: { display: values.length > 1, labels: { color: '#9C7F63', font: { family: 'IBM Plex Mono', size: 10 } } } },
+      plugins: { legend: { display: values.length > 1, labels: { color: axisColor(), font: { family: 'IBM Plex Mono', size: 10 } } } },
       scales: {
-        x: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } },
-        y: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } }
+        x: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
+        y: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } }
       }
     }
   });
@@ -376,10 +432,10 @@ function renderLabChart() {
     },
     options: {
       responsive: true,
-      plugins: { legend: { labels: { color: '#9C7F63', font: { family: 'IBM Plex Mono', size: 10 } } } },
+      plugins: { legend: { labels: { color: axisColor(), font: { family: 'IBM Plex Mono', size: 10 } } } },
       scales: {
-        x: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } },
-        y: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } }
+        x: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
+        y: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } }
       }
     }
   });
@@ -415,10 +471,10 @@ function renderLipidsChart() {
     data: { labels: dates, datasets },
     options: {
       responsive: true,
-      plugins: { legend: { labels: { color: '#9C7F63', font: { family: 'IBM Plex Mono', size: 10 } } } },
+      plugins: { legend: { labels: { color: axisColor(), font: { family: 'IBM Plex Mono', size: 10 } } } },
       scales: {
-        x: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } },
-        y: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } }
+        x: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
+        y: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } }
       }
     }
   });
@@ -460,13 +516,13 @@ function renderThyroidChart() {
     data: { labels: dates, datasets },
     options: {
       responsive: true,
-      plugins: { legend: { labels: { color: '#9C7F63', font: { family: 'IBM Plex Mono', size: 10 } } } },
+      plugins: { legend: { labels: { color: axisColor(), font: { family: 'IBM Plex Mono', size: 10 } } } },
       scales: {
-        x: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } },
-        y: { type: 'linear', position: 'left', ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } },
+        x: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
+        y: { type: 'linear', position: 'left', ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
         y1: {
           type: 'linear', position: 'right', display: usesRightAxis,
-          ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { drawOnChartArea: false }
+          ticks: { color: axisColor(), font: { size: 10 } }, grid: { drawOnChartArea: false }
         }
       }
     }
@@ -666,8 +722,8 @@ function renderStepsChart() {
       responsive: true,
       plugins: { legend: { display: false } },
       scales: {
-        x: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } },
-        y: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } }
+        x: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
+        y: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } }
       }
     }
   });
@@ -690,10 +746,10 @@ function renderSyncPulseChart() {
     },
     options: {
       responsive: true,
-      plugins: { legend: { labels: { color: '#9C7F63', font: { family: 'IBM Plex Mono', size: 10 } } } },
+      plugins: { legend: { labels: { color: axisColor(), font: { family: 'IBM Plex Mono', size: 10 } } } },
       scales: {
-        x: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } },
-        y: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } }
+        x: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
+        y: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } }
       }
     }
   });
@@ -718,10 +774,10 @@ function renderSleepChart() {
     },
     options: {
       responsive: true,
-      plugins: { legend: { labels: { color: '#9C7F63', font: { family: 'IBM Plex Mono', size: 10 } } } },
+      plugins: { legend: { labels: { color: axisColor(), font: { family: 'IBM Plex Mono', size: 10 } } } },
       scales: {
-        x: { stacked: true, ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } },
-        y: { stacked: true, ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' }, title: { display: true, text: 'Stunden', color: '#9C7F63' } }
+        x: { stacked: true, ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
+        y: { stacked: true, ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() }, title: { display: true, text: 'Stunden', color: axisColor() } }
       }
     }
   });
@@ -753,10 +809,10 @@ function renderSyncBPChart() {
     },
     options: {
       responsive: true,
-      plugins: { legend: { labels: { color: '#9C7F63', font: { family: 'IBM Plex Mono', size: 10 } } } },
+      plugins: { legend: { labels: { color: axisColor(), font: { family: 'IBM Plex Mono', size: 10 } } } },
       scales: {
-        x: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } },
-        y: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } }
+        x: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
+        y: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } }
       }
     }
   });
