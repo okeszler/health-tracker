@@ -120,6 +120,15 @@
     background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; color: var(--text);
     padding: 6px 10px; font-family: 'IBM Plex Mono', monospace; font-size: 12px;
   }
+
+  .sync-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  button.sync {
+    background: var(--surface); border: 1px solid var(--line); color: var(--text); border-radius: 6px;
+    padding: 9px 16px; font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 500; cursor: pointer;
+  }
+  button.sync:hover { border-color: var(--honey); color: var(--honey); }
+  button.sync:disabled { opacity: 0.6; cursor: default; }
+  .sync-status { font-size: 12px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; }
 </style>
 </head>
 <body>
@@ -197,6 +206,24 @@
   <section>
     <h2>Log — Blutwerte</h2>
     <div id="labLogWrap"><div class="empty">Lädt…</div></div>
+  </section>
+
+  <section>
+    <h2>Health Sync <span style="font-weight:400; text-transform:none; letter-spacing:normal;">(Schritte, Puls, Schlaf, Aktivitäten)</span></h2>
+    <div class="sync-bar">
+      <button class="sync" id="syncBtn">Jetzt synchronisieren</button>
+      <span class="sync-status" id="syncStatus"></span>
+    </div>
+    <div class="charts">
+      <div class="chart-card"><h3>Schritte</h3><canvas id="chartSteps" height="140"></canvas></div>
+      <div class="chart-card"><h3>Puls (Health Sync)</h3><canvas id="chartSyncPulse" height="140"></canvas></div>
+      <div class="chart-card"><h3>Schlaf</h3><canvas id="chartSleep" height="140"></canvas></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Log — Aktivitäten</h2>
+    <div id="activitiesLogWrap"><div class="empty">Lädt…</div></div>
   </section>
 </div>
 
@@ -608,10 +635,145 @@ document.getElementById('labForm').addEventListener('submit', async (e) => {
   loadLabs();
 });
 
+let syncData = { steps: [], pulse: [], sleep: [], activities: [], weight: [] };
+
+async function loadSyncData() {
+  syncData = await fetch('/api/sync-data').then(r => r.json());
+  renderActivitiesLog();
+  try { renderSyncCharts(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
+}
+
+function renderSyncCharts() {
+  renderStepsChart();
+  renderSyncPulseChart();
+  renderSleepChart();
+}
+
+function renderStepsChart() {
+  const ctx = document.getElementById('chartSteps');
+  if (charts.chartSteps) charts.chartSteps.destroy();
+  const asc = [...syncData.steps].reverse();
+  if (!asc.length) return;
+  charts.chartSteps = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: asc.map(d => d.entry_date.slice(5)),
+      datasets: [{ label: 'Schritte', data: asc.map(d => d.steps), backgroundColor: '#EB8A3E' }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } },
+        y: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } }
+      }
+    }
+  });
+}
+
+function renderSyncPulseChart() {
+  const ctx = document.getElementById('chartSyncPulse');
+  if (charts.chartSyncPulse) charts.chartSyncPulse.destroy();
+  const asc = [...syncData.pulse].reverse();
+  if (!asc.length) return;
+  charts.chartSyncPulse = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: asc.map(d => d.entry_date.slice(5)),
+      datasets: [
+        { label: 'Ø', data: asc.map(d => d.avg_bpm), borderColor: '#D24136', backgroundColor: '#D2413633', tension: 0.3, pointRadius: 2, fill: true },
+        { label: 'min', data: asc.map(d => d.min_bpm), borderColor: '#4A7A6D', tension: 0.3, pointRadius: 0 },
+        { label: 'max', data: asc.map(d => d.max_bpm), borderColor: '#785A46', tension: 0.3, pointRadius: 0 },
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#9C7F63', font: { family: 'IBM Plex Mono', size: 10 } } } },
+      scales: {
+        x: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } },
+        y: { ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } }
+      }
+    }
+  });
+}
+
+function renderSleepChart() {
+  const ctx = document.getElementById('chartSleep');
+  if (charts.chartSleep) charts.chartSleep.destroy();
+  const asc = [...syncData.sleep].reverse();
+  if (!asc.length) return;
+  const toHours = (s) => Math.round((s / 3600) * 10) / 10;
+  charts.chartSleep = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: asc.map(d => d.entry_date.slice(5)),
+      datasets: [
+        { label: 'Tief', data: asc.map(d => toHours(d.deep_seconds)), backgroundColor: '#785A46' },
+        { label: 'Leicht', data: asc.map(d => toHours(d.light_seconds)), backgroundColor: '#EB8A3E' },
+        { label: 'REM', data: asc.map(d => toHours(d.rem_seconds)), backgroundColor: '#4A7A6D' },
+        { label: 'Wach', data: asc.map(d => toHours(d.awake_seconds)), backgroundColor: '#EBB582' },
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#9C7F63', font: { family: 'IBM Plex Mono', size: 10 } } } },
+      scales: {
+        x: { stacked: true, ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' } },
+        y: { stacked: true, ticks: { color: '#9C7F63', font: { size: 10 } }, grid: { color: '#E9D6BC' }, title: { display: true, text: 'Stunden', color: '#9C7F63' } }
+      }
+    }
+  });
+}
+
+function renderActivitiesLog() {
+  const wrap = document.getElementById('activitiesLogWrap');
+  if (!syncData.activities.length) { wrap.innerHTML = '<div class="empty">Noch keine Aktivitäten synchronisiert.</div>'; return; }
+  wrap.innerHTML = `<table class="log"><thead><tr>
+    <th>Datum</th><th>Zeit</th><th>Typ</th><th>Dauer</th><th>Distanz</th><th>Kalorien</th><th>Ø Puls</th><th>Max Puls</th>
+  </tr></thead><tbody>
+  ${syncData.activities.map(a => `<tr>
+    <td>${a.entry_date}</td>
+    <td>${a.start_time ?? ''}</td>
+    <td>${a.activity_type ?? '—'}</td>
+    <td>${a.active_seconds != null ? Math.round(a.active_seconds / 60) + ' min' : '—'}</td>
+    <td>${a.distance_km != null ? a.distance_km.toFixed(2) + ' km' : '—'}</td>
+    <td>${a.calories != null ? Math.round(a.calories) + ' kcal' : '—'}</td>
+    <td>${a.avg_hr != null ? Math.round(a.avg_hr) : '—'}</td>
+    <td>${a.max_hr != null ? Math.round(a.max_hr) : '—'}</td>
+  </tr>`).join('')}
+  </tbody></table>`;
+}
+
+document.getElementById('syncBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('syncBtn');
+  const statusEl = document.getElementById('syncStatus');
+  btn.disabled = true;
+  statusEl.textContent = 'synchronisiert…';
+  try {
+    const res = await fetch('/api/sync', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) {
+      statusEl.textContent = 'Fehler: ' + (data.error || res.status);
+    } else {
+      const parts = Object.entries(data.summary).map(([key, v]) => {
+        if (v.error) return `${key}: Fehler`;
+        if (v.skipped) return `${key}: nicht geteilt`;
+        return `${key}: +${v.newFiles || 0}`;
+      });
+      statusEl.textContent = parts.join(' · ');
+      await loadSyncData();
+    }
+  } catch (e) {
+    statusEl.textContent = 'Fehler: ' + e.message;
+  }
+  btn.disabled = false;
+});
+
 (async function init() {
   await loadGoals();
   await loadData();
   await loadLabs();
+  await loadSyncData();
 })();
 </script>
 </body>

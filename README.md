@@ -10,9 +10,12 @@ Cloudflare Pages + D1, gleiches Muster wie die anderen Cloudflare-Apps
 - `functions/api/metrics.js` — CRUD für tägliche Vitals (Gewicht, Körperzusammensetzung, Blutdruck, Puls)
 - `functions/api/labs.js` — CRUD für Laborwerte (freier Testname + Einheit, rückwirkend erfassbar)
 - `functions/api/goals.js` — Zielwerte (Gewicht, Körperfett)
+- `functions/api/sync.js`, `functions/api/sync-data.js`, `functions/api/_google.js` — Health-Sync-Import
+  aus Google Drive (siehe unten)
 - `schema.sql` — D1-Schema (für Neuaufsetzen)
 - `migration_v2.sql` — nur nötig, falls du das ursprüngliche v1-Schema (mit Wasserzufuhr statt
   Blutwerten/Muskel%/Körperwasser%) schon deployed hattest
+- `migration_sync.sql` — Tabellen für den Health-Sync-Import (Schritte/Puls/Schlaf/Aktivitäten/Gewicht)
 - `wrangler.toml`, `package.json` — Konfiguration
 
 ## Passwortschutz
@@ -101,3 +104,42 @@ Bindung und Passwort-Secret in der laufenden Deployment greifen.
 npm run db:migrate
 npm run deploy
 ```
+
+## Health Sync (Schritte, Puls, Schlaf, Aktivitäten) aus Google Drive
+
+Die App (Health Sync) synct dein Handy periodisch als CSV-Dateien in fünf Google-Drive-Ordner:
+`Health Sync Puls`, `Health Sync Schritte`, `Health Sync Schlaf`, `Health Sync Aktivitäten`,
+`Health Sync Gewicht`. `health-tracker` liest diese über ein Google Service Account (read-only,
+kein OAuth-Login nötig) und aggregiert sie zu Tageswerten.
+
+Setup — nutzt dasselbe Service Account wie `dagoberts-geldspeicher`
+(`dagoberts-geldspeicher@dagoberts-geldspeicher.iam.gserviceaccount.com`), nur mit zusätzlichem
+Drive-Zugriff:
+
+1. **Drive API aktivieren** — [console.cloud.google.com](https://console.cloud.google.com), Projekt
+   `dagoberts-geldspeicher` auswählen → **APIs & Dienste → Bibliothek** → "Google Drive API" suchen
+   → **Aktivieren**
+2. **Neuen JSON-Key erzeugen** — **APIs & Dienste → Anmeldedaten**, das Service Account
+   `dagoberts-geldspeicher@...` anklicken → Tab **Keys → Add Key → Create new key → JSON**
+   → Datei wird heruntergeladen
+3. **Die 5 Ordner freigeben** — in Google Drive jeden der fünf `Health Sync ...`-Ordner öffnen
+   (Rechtsklick im Drive-Explorer) → **Freigeben** → E-Mail
+   `dagoberts-geldspeicher@dagoberts-geldspeicher.iam.gserviceaccount.com` eintragen, Rolle
+   **Betrachter**, **Senden** (Benachrichtigung kann deaktiviert werden, das Konto liest keine Mails)
+4. **Schema einspielen:**
+   ```powershell
+   npm run db:migrate-sync
+   ```
+5. **Secret setzen** (kompletter Inhalt der heruntergeladenen JSON-Datei, eine Zeile):
+   ```powershell
+   npx wrangler pages secret put GOOGLE_SERVICE_ACCOUNT_JSON --project-name=health-tracker
+   ```
+   Browser-Weg: Pages-Projekt → **Settings → Environment variables → Add variable** — Name
+   `GOOGLE_SERVICE_ACCOUNT_JSON`, Typ **Secret**, Wert = JSON-Inhalt
+6. Neu deployen (`npm run deploy` oder Retry deployment im Dashboard), danach in der App unten bei
+   **"Health Sync"** auf **"Jetzt synchronisieren"** klicken
+
+Jede Datei wird nur einmal verarbeitet (Tracking in der Tabelle `sync_files`) — ein erneuter Klick
+auf "Jetzt synchronisieren" holt nur neu hinzugekommene Dateien, nichts wird doppelt gezählt.
+Aktuell ist der Sync manuell per Button; ein täglicher Cron-Trigger (wie bei
+`dagoberts-geldspeicher/cron-worker`) lässt sich bei Bedarf ergänzen.
