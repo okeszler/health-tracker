@@ -192,7 +192,7 @@
     <div class="charts">
       <div class="chart-card"><h3>Gewicht</h3><canvas id="chartWeight" height="140"></canvas></div>
       <div class="chart-card"><h3>Körperzusammensetzung</h3><canvas id="chartComp" height="140"></canvas></div>
-      <div class="chart-card"><h3>Blutdruck & Puls</h3><canvas id="chartBP" height="140"></canvas></div>
+      <div class="chart-card"><h3>Blutdruck & Puls <span style="font-weight:400; text-transform:none;">(manuell + Health Sync)</span></h3><canvas id="chartBP" height="140"></canvas></div>
       <div class="chart-card">
         <h3 style="display:flex; justify-content:space-between; align-items:center;">
           Blutwerte
@@ -213,9 +213,7 @@
     </div>
     <div class="charts">
       <div class="chart-card"><h3>Schritte</h3><canvas id="chartSteps" height="140"></canvas></div>
-      <div class="chart-card"><h3>Puls (Health Sync)</h3><canvas id="chartSyncPulse" height="140"></canvas></div>
       <div class="chart-card"><h3>Schlaf</h3><canvas id="chartSleep" height="140"></canvas></div>
-      <div class="chart-card"><h3>Blutdruck (Health Sync)</h3><canvas id="chartSyncBP" height="140"></canvas></div>
     </div>
   </section>
 
@@ -305,6 +303,7 @@ async function loadData() {
   renderVitals();
   renderLog();
   try { renderCharts(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
+  try { renderCombinedBPChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
 }
 
 async function loadLabs() {
@@ -401,11 +400,62 @@ function renderCharts() {
     { key: 'muscle_pct', label: 'Muskel %', color: '#EB8A3E' },
     { key: 'body_water_pct', label: 'Wasser %', color: '#4A7A6D' },
   ]);
-  buildChart('chartBP', [
-    { key: 'bp_systolic', label: 'systolisch', color: '#D24136' },
-    { key: 'bp_diastolic', label: 'diastolisch', color: '#EB8A3E' },
-    { key: 'pulse', label: 'Puls', color: '#4A7A6D' },
-  ]);
+}
+
+// Blutdruck & Puls kommen aus zwei Quellen (manuelle Einträge + Health Sync),
+// deshalb eigene Funktion statt buildChart(): manuelle Werte als durchgezogene
+// Linie, Health-Sync-Tageswerte (aus Einzelmessungen gemittelt) gestrichelt in
+// derselben Farbe je Kennzahl. Wird sowohl nach dem Laden der Vitals als auch
+// nach dem Laden der Health-Sync-Daten aufgerufen -- was noch nicht geladen ist,
+// zählt einfach als leer.
+function renderCombinedBPChart() {
+  const ctx = document.getElementById('chartBP');
+  if (charts.chartBP) charts.chartBP.destroy();
+
+  const manualByDate = {};
+  for (const d of data) manualByDate[d.entry_date] = d;
+
+  const bpByDate = {};
+  for (const r of (syncData.bp || [])) {
+    const agg = bpByDate[r.entry_date] || { sysSum: 0, diaSum: 0, count: 0 };
+    agg.sysSum += r.systolic;
+    agg.diaSum += r.diastolic;
+    agg.count += 1;
+    bpByDate[r.entry_date] = agg;
+  }
+  const pulseByDate = {};
+  for (const p of (syncData.pulse || [])) pulseByDate[p.entry_date] = p.avg_bpm;
+
+  const dates = [...new Set([
+    ...Object.keys(manualByDate),
+    ...Object.keys(bpByDate),
+    ...Object.keys(pulseByDate),
+  ])].sort();
+  if (!dates.length) return;
+
+  const dashed = [6, 4];
+  charts.chartBP = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: dates.map(d => d.slice(5)),
+      datasets: [
+        { label: 'systolisch (manuell)', data: dates.map(d => manualByDate[d]?.bp_systolic ?? null), borderColor: '#D24136', spanGaps: true, tension: 0.3, pointRadius: 2 },
+        { label: 'diastolisch (manuell)', data: dates.map(d => manualByDate[d]?.bp_diastolic ?? null), borderColor: '#EB8A3E', spanGaps: true, tension: 0.3, pointRadius: 2 },
+        { label: 'Puls (manuell)', data: dates.map(d => manualByDate[d]?.pulse ?? null), borderColor: '#4A7A6D', spanGaps: true, tension: 0.3, pointRadius: 2 },
+        { label: 'systolisch (Health Sync)', data: dates.map(d => bpByDate[d] ? Math.round(bpByDate[d].sysSum / bpByDate[d].count) : null), borderColor: '#D24136', borderDash: dashed, spanGaps: true, tension: 0.3, pointRadius: 2 },
+        { label: 'diastolisch (Health Sync)', data: dates.map(d => bpByDate[d] ? Math.round(bpByDate[d].diaSum / bpByDate[d].count) : null), borderColor: '#EB8A3E', borderDash: dashed, spanGaps: true, tension: 0.3, pointRadius: 2 },
+        { label: 'Puls (Health Sync)', data: dates.map(d => pulseByDate[d] ?? null), borderColor: '#4A7A6D', borderDash: dashed, spanGaps: true, tension: 0.3, pointRadius: 2 },
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: axisColor(), font: { family: 'IBM Plex Mono', size: 10 } } } },
+      scales: {
+        x: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
+        y: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } }
+      }
+    }
+  });
 }
 
 function renderLabChart() {
@@ -702,9 +752,8 @@ async function loadSyncData() {
 
 function renderSyncCharts() {
   renderStepsChart();
-  renderSyncPulseChart();
   renderSleepChart();
-  renderSyncBPChart();
+  renderCombinedBPChart();
 }
 
 function renderStepsChart() {
@@ -721,32 +770,6 @@ function renderStepsChart() {
     options: {
       responsive: true,
       plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
-        y: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } }
-      }
-    }
-  });
-}
-
-function renderSyncPulseChart() {
-  const ctx = document.getElementById('chartSyncPulse');
-  if (charts.chartSyncPulse) charts.chartSyncPulse.destroy();
-  const asc = [...syncData.pulse].reverse();
-  if (!asc.length) return;
-  charts.chartSyncPulse = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: asc.map(d => d.entry_date.slice(5)),
-      datasets: [
-        { label: 'Ø', data: asc.map(d => d.avg_bpm), borderColor: '#D24136', backgroundColor: '#D2413633', tension: 0.3, pointRadius: 2, fill: true },
-        { label: 'min', data: asc.map(d => d.min_bpm), borderColor: '#4A7A6D', tension: 0.3, pointRadius: 0 },
-        { label: 'max', data: asc.map(d => d.max_bpm), borderColor: '#785A46', tension: 0.3, pointRadius: 0 },
-      ]
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { labels: { color: axisColor(), font: { family: 'IBM Plex Mono', size: 10 } } } },
       scales: {
         x: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
         y: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } }
@@ -778,41 +801,6 @@ function renderSleepChart() {
       scales: {
         x: { stacked: true, ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
         y: { stacked: true, ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() }, title: { display: true, text: 'Stunden', color: axisColor() } }
-      }
-    }
-  });
-}
-
-function renderSyncBPChart() {
-  const ctx = document.getElementById('chartSyncBP');
-  if (charts.chartSyncBP) charts.chartSyncBP.destroy();
-  if (!syncData.bp.length) return;
-
-  const perDay = new Map();
-  for (const r of syncData.bp) {
-    const agg = perDay.get(r.entry_date) || { sysSum: 0, diaSum: 0, count: 0 };
-    agg.sysSum += r.systolic;
-    agg.diaSum += r.diastolic;
-    agg.count += 1;
-    perDay.set(r.entry_date, agg);
-  }
-  const dates = [...perDay.keys()].sort();
-
-  charts.chartSyncBP = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: dates.map(d => d.slice(5)),
-      datasets: [
-        { label: 'systolisch', data: dates.map(d => Math.round(perDay.get(d).sysSum / perDay.get(d).count)), borderColor: '#D24136', backgroundColor: '#D2413633', tension: 0.3, pointRadius: 2, fill: true },
-        { label: 'diastolisch', data: dates.map(d => Math.round(perDay.get(d).diaSum / perDay.get(d).count)), borderColor: '#EB8A3E', backgroundColor: '#EB8A3E33', tension: 0.3, pointRadius: 2, fill: true },
-      ]
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { labels: { color: axisColor(), font: { family: 'IBM Plex Mono', size: 10 } } } },
-      scales: {
-        x: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
-        y: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } }
       }
     }
   });
