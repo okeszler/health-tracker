@@ -9,6 +9,10 @@
 <link rel="icon" href="/icons/icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="/icons/icon-180.png">
 <meta name="theme-color" content="#D24136">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Vitals">
 <script>
   (function() {
     var saved = localStorage.getItem('ht-theme');
@@ -856,6 +860,12 @@ document.getElementById('syncBtn').addEventListener('click', async () => {
   await loadLabs();
   await loadSyncData();
 })();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((e) => console.error('SW-Registrierung fehlgeschlagen', e));
+  });
+}
 </script>
 </body>
 </html>
