@@ -437,18 +437,22 @@ function renderCombinedBPChart() {
   ])].sort();
   if (!dates.length) return;
 
-  const dashed = [6, 4];
+  // Egal aus welcher Quelle -- pro Tag ein Wert je Kennzahl. Sind manueller
+  // Eintrag und Health-Sync-Tageswert beide vorhanden, wird gemittelt.
+  const merge = (a, b) => (a != null && b != null) ? Math.round((a + b) / 2) : (a ?? b ?? null);
+
+  const systolic = dates.map(d => merge(manualByDate[d]?.bp_systolic, bpByDate[d] ? bpByDate[d].sysSum / bpByDate[d].count : null));
+  const diastolic = dates.map(d => merge(manualByDate[d]?.bp_diastolic, bpByDate[d] ? bpByDate[d].diaSum / bpByDate[d].count : null));
+  const pulse = dates.map(d => merge(manualByDate[d]?.pulse, pulseByDate[d]));
+
   charts.chartBP = new Chart(ctx, {
     type: 'line',
     data: {
       labels: dates.map(d => d.slice(5)),
       datasets: [
-        { label: 'systolisch (manuell)', data: dates.map(d => manualByDate[d]?.bp_systolic ?? null), borderColor: '#D24136', spanGaps: true, tension: 0.3, pointRadius: 2 },
-        { label: 'diastolisch (manuell)', data: dates.map(d => manualByDate[d]?.bp_diastolic ?? null), borderColor: '#EB8A3E', spanGaps: true, tension: 0.3, pointRadius: 2 },
-        { label: 'Puls (manuell)', data: dates.map(d => manualByDate[d]?.pulse ?? null), borderColor: '#4A7A6D', spanGaps: true, tension: 0.3, pointRadius: 2 },
-        { label: 'systolisch (Health Sync)', data: dates.map(d => bpByDate[d] ? Math.round(bpByDate[d].sysSum / bpByDate[d].count) : null), borderColor: '#D24136', borderDash: dashed, spanGaps: true, tension: 0.3, pointRadius: 2 },
-        { label: 'diastolisch (Health Sync)', data: dates.map(d => bpByDate[d] ? Math.round(bpByDate[d].diaSum / bpByDate[d].count) : null), borderColor: '#EB8A3E', borderDash: dashed, spanGaps: true, tension: 0.3, pointRadius: 2 },
-        { label: 'Puls (Health Sync)', data: dates.map(d => pulseByDate[d] ?? null), borderColor: '#4A7A6D', borderDash: dashed, spanGaps: true, tension: 0.3, pointRadius: 2 },
+        { label: 'systolisch', data: systolic, borderColor: '#D24136', spanGaps: true, tension: 0.3, pointRadius: 2 },
+        { label: 'diastolisch', data: diastolic, borderColor: '#EB8A3E', spanGaps: true, tension: 0.3, pointRadius: 2 },
+        { label: 'Puls', data: pulse, borderColor: '#4A7A6D', spanGaps: true, tension: 0.3, pointRadius: 2 },
       ]
     },
     options: {
