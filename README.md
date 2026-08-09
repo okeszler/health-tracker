@@ -20,6 +20,9 @@ Cloudflare Pages + D1, gleiches Muster wie die anderen Cloudflare-Apps
 - `migration_sync_v2.sql` — stellt Schritte/Puls/Schlaf/Gewicht auf Einzelmessungen +
   Live-Aggregation um (Health Sync ersetzt Tagesdateien periodisch komplett statt nur
   neue Daten anzuhängen; das alte Akkumulations-Modell zählte dadurch doppelt)
+- `migration_sync_v3.sql` — bereinigt Doppelzählungen durch überlappende Backfill-
+  Exportdateien (z.B. "Schritte 2026.07.08-2026.08.07...csv"); der Import ersetzt
+  jetzt pro Datei die betroffenen Tage komplett statt Messungen nur zu addieren
 - `wrangler.toml`, `package.json` — Konfiguration
 
 ## Passwortschutz
@@ -137,6 +140,7 @@ Drive-Zugriff:
    npm run db:migrate-sync
    npm run db:migrate-sync-bp
    npm run db:migrate-sync-v2
+   npm run db:migrate-sync-v3
    ```
 5. **Secret setzen** (kompletter Inhalt der heruntergeladenen JSON-Datei, eine Zeile):
    ```powershell

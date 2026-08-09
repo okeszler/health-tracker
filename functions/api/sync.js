@@ -103,52 +103,72 @@ async function importRows(env, categoryKey, rows) {
   if (categoryKey === "blutdruck") return importBlutdruck(env, rows);
 }
 
-// Health Sync ersetzt seine Tagesdateien offenbar periodisch komplett durch eine
-// neue Datei mit neuer Drive-ID statt nur neue Minuten anzuhängen. Statt "bei jeder
-// neuen Datei draufaddieren" (zählt denselben Tag dann mehrfach) werden Einzel-
-// messungen mit UNIQUE-Constraint gespeichert -- Mehrfachimporte derselben Zeile
-// sind dadurch automatisch harmlos, Aggregation passiert live beim Lesen.
+// Health Sync exportiert Tage nicht stabil: dieselbe Datei wird mit neuer Drive-ID
+// neu geschrieben, und gelegentlich taucht zusätzlich eine große Backfill-Datei auf
+// (z.B. "Schritte 2026.07.08-2026.08.07...csv"), die denselben Zeitraum nochmal mit
+// leicht abweichenden Zeitstempeln liefert. Ein reines UNIQUE-Constraint auf
+// (Datum, Zeit, Wert) fängt das nicht ab, wenn sich die Zeitstempel minimal
+// unterscheiden -- das hat Tage doppelt gezählt. Deshalb jetzt: pro Datei zuerst
+// alle bestehenden Messungen für die in der Datei vorkommenden Tage löschen, dann
+// die Datei-Zeilen einfügen. Dateien werden chronologisch nach modifiedTime
+// verarbeitet (siehe listDriveFiles), die zuletzt importierte Datei "gewinnt" also
+// pro Tag -- unabhängig davon, ob sie eine Tages- oder eine Backfill-Datei ist.
+async function replaceByDate(env, table, dateColumn, rows) {
+  const dates = [...new Set(rows.map((r) => r._date))];
+  if (!dates.length) return;
+  const placeholders = dates.map(() => "?").join(",");
+  await env.DB.prepare(`DELETE FROM ${table} WHERE ${dateColumn} IN (${placeholders})`)
+    .bind(...dates)
+    .run();
+}
+
 async function importPuls(env, rows) {
-  const stmt = env.DB.prepare(
-    `INSERT OR IGNORE INTO sync_pulse_readings (entry_date, reading_time, bpm) VALUES (?, ?, ?)`
-  );
-  const batch = [];
+  const parsed = [];
   for (const r of rows) {
     const { date, time } = splitHealthSyncTimestamp(r["Datum"]);
     const bpm = toInt(r["Puls"]);
     if (!date || bpm === null) continue;
-    batch.push(stmt.bind(date, time, bpm));
+    parsed.push({ _date: date, time, bpm });
   }
+  await replaceByDate(env, "sync_pulse_readings", "entry_date", parsed);
+  const stmt = env.DB.prepare(
+    `INSERT OR IGNORE INTO sync_pulse_readings (entry_date, reading_time, bpm) VALUES (?, ?, ?)`
+  );
+  const batch = parsed.map((p) => stmt.bind(p._date, p.time, p.bpm));
   if (batch.length) await env.DB.batch(batch);
 }
 
 async function importSchritte(env, rows) {
-  const stmt = env.DB.prepare(
-    `INSERT OR IGNORE INTO sync_steps_readings (entry_date, reading_time, steps) VALUES (?, ?, ?)`
-  );
-  const batch = [];
+  const parsed = [];
   for (const r of rows) {
     const { date, time } = splitHealthSyncTimestamp(r["Datum"]);
     const steps = toInt(r["Schritte"]);
     if (!date || steps === null) continue;
-    batch.push(stmt.bind(date, time, steps));
+    parsed.push({ _date: date, time, steps });
   }
+  await replaceByDate(env, "sync_steps_readings", "entry_date", parsed);
+  const stmt = env.DB.prepare(
+    `INSERT OR IGNORE INTO sync_steps_readings (entry_date, reading_time, steps) VALUES (?, ?, ?)`
+  );
+  const batch = parsed.map((p) => stmt.bind(p._date, p.time, p.steps));
   if (batch.length) await env.DB.batch(batch);
 }
 
 async function importSchlaf(env, rows) {
-  const stmt = env.DB.prepare(
-    `INSERT OR IGNORE INTO sync_sleep_readings (entry_date, reading_time, duration_seconds, stage) VALUES (?, ?, ?, ?)`
-  );
-  const batch = [];
+  const parsed = [];
   for (const r of rows) {
     const { date, time } = splitHealthSyncTimestamp(r["Datum"]);
     const durationKey = Object.keys(r).find((k) => /sekund|second|urée|duration/i.test(k));
     const seconds = toInt(r[durationKey]);
     const stage = (r["Schlafstadium"] || "").toLowerCase() || null;
     if (!date || seconds === null) continue;
-    batch.push(stmt.bind(date, time, seconds, stage));
+    parsed.push({ _date: date, time, seconds, stage });
   }
+  await replaceByDate(env, "sync_sleep_readings", "entry_date", parsed);
+  const stmt = env.DB.prepare(
+    `INSERT OR IGNORE INTO sync_sleep_readings (entry_date, reading_time, duration_seconds, stage) VALUES (?, ?, ?, ?)`
+  );
+  const batch = parsed.map((p) => stmt.bind(p._date, p.time, p.seconds, p.stage));
   if (batch.length) await env.DB.batch(batch);
 }
 
@@ -182,16 +202,18 @@ async function importAktivitaeten(env, rows) {
 }
 
 async function importGewicht(env, rows) {
-  const stmt = env.DB.prepare(
-    `INSERT OR IGNORE INTO sync_weight_readings (entry_date, reading_time, weight_kg) VALUES (?, ?, ?)`
-  );
-  const batch = [];
+  const parsed = [];
   for (const r of rows) {
     const { date, time } = splitHealthSyncTimestamp(r["Datum"]);
     const weight = toFloat(r["Gewicht"] ?? r["Weight"]);
     if (!date || weight === null) continue;
-    batch.push(stmt.bind(date, time, weight));
+    parsed.push({ _date: date, time, weight });
   }
+  await replaceByDate(env, "sync_weight_readings", "entry_date", parsed);
+  const stmt = env.DB.prepare(
+    `INSERT OR IGNORE INTO sync_weight_readings (entry_date, reading_time, weight_kg) VALUES (?, ?, ?)`
+  );
+  const batch = parsed.map((p) => stmt.bind(p._date, p.time, p.weight));
   if (batch.length) await env.DB.batch(batch);
 }
 

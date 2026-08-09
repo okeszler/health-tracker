@@ -1,8 +1,12 @@
 // GET /api/sync-data -> aggregierte Health-Sync-Daten fürs Dashboard
-// (Schritte/Puls/Schlaf/Gewicht pro Tag, Blutdruck/Aktivitäten-Log)
+// (Schritte/Puls pro Tag, Schlaf als Rohmessungen, Blutdruck/Aktivitäten-Log)
 //
-// Schritte/Puls/Schlaf/Gewicht werden aus Einzelmessungen live aggregiert statt aus
+// Schritte/Puls/Gewicht werden aus Einzelmessungen live aggregiert statt aus
 // vorab akkumulierten Tabellen -- siehe migration_sync_v2.sql für den Hintergrund.
+// Schlaf kommt roh (chronologisch) statt nach Kalendertag aggregiert, weil eine
+// Nacht über Mitternacht zwei Kalendertage überspannt -- die Gruppierung zu
+// zusammenhängenden Nächten passiert im Frontend (siehe groupSleepIntoNights in
+// index.html).
 
 export async function onRequestGet({ env }) {
   const [steps, pulse, sleep, activities, weight, bp] = await Promise.all([
@@ -14,13 +18,7 @@ export async function onRequestGet({ env }) {
        FROM sync_pulse_readings GROUP BY entry_date ORDER BY entry_date DESC`
     ).all(),
     env.DB.prepare(
-      `SELECT entry_date,
-         SUM(duration_seconds) AS total_seconds,
-         SUM(CASE WHEN stage = 'deep' THEN duration_seconds ELSE 0 END) AS deep_seconds,
-         SUM(CASE WHEN stage = 'light' THEN duration_seconds ELSE 0 END) AS light_seconds,
-         SUM(CASE WHEN stage = 'rem' THEN duration_seconds ELSE 0 END) AS rem_seconds,
-         SUM(CASE WHEN stage = 'awake' THEN duration_seconds ELSE 0 END) AS awake_seconds
-       FROM sync_sleep_readings GROUP BY entry_date ORDER BY entry_date DESC`
+      "SELECT entry_date, reading_time, duration_seconds, stage FROM sync_sleep_readings ORDER BY entry_date, reading_time"
     ).all(),
     env.DB.prepare("SELECT * FROM sync_activities ORDER BY entry_date DESC, start_time DESC").all(),
     env.DB.prepare(

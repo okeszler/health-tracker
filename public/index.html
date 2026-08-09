@@ -786,29 +786,77 @@ function renderStepsChart() {
   });
 }
 
+// Eine Nacht überspannt oft zwei Kalendertage (z.B. 23 Uhr abends bis 7 Uhr
+// morgens) -- die rohen Messungen kommen chronologisch, hier zu zusammenhängenden
+// Nächten gruppiert: neue Nacht, sobald zwischen zwei Messungen mehr als
+// GAP_HOURS Stunden Lücke liegt (z.B. der wache Tag dazwischen).
+const SLEEP_GAP_HOURS = 4;
+
+function groupSleepIntoNights(readings) {
+  const withTimes = readings
+    .map(r => {
+      const start = new Date(`${r.entry_date}T${r.reading_time}`).getTime();
+      return { ...r, start, end: start + r.duration_seconds * 1000 };
+    })
+    .filter(r => !isNaN(r.start))
+    .sort((a, b) => a.start - b.start);
+
+  const nights = [];
+  let current = null;
+  for (const r of withTimes) {
+    if (!current || r.start - current.end > SLEEP_GAP_HOURS * 3600 * 1000) {
+      current = { segments: [], bedtime: r.start, waketime: r.end, deep: 0, light: 0, rem: 0, awake: 0, other: 0 };
+      nights.push(current);
+    }
+    current.segments.push(r);
+    current.waketime = Math.max(current.waketime, r.end);
+    const bucket = ['deep', 'light', 'rem', 'awake'].includes(r.stage) ? r.stage : 'other';
+    current[bucket] += r.duration_seconds;
+  }
+  return nights;
+}
+
 function renderSleepChart() {
   const ctx = document.getElementById('chartSleep');
   if (charts.chartSleep) charts.chartSleep.destroy();
-  const asc = [...syncData.sleep].reverse();
-  if (!asc.length) return;
+
+  const nights = groupSleepIntoNights(syncData.sleep || []);
+  if (!nights.length) return;
+
   const toHours = (s) => Math.round((s / 3600) * 10) / 10;
+  const fmtTime = (ms) => new Date(ms).toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' });
+  const fmtDate = (ms) => new Date(ms).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' });
+
+  const labels = nights.map(n => fmtDate(n.waketime));
+
   charts.chartSleep = new Chart(ctx, {
     type: 'bar',
     data: {
-      labels: asc.map(d => d.entry_date.slice(5)),
+      labels,
       datasets: [
-        { label: 'Tief', data: asc.map(d => toHours(d.deep_seconds)), backgroundColor: '#785A46' },
-        { label: 'Leicht', data: asc.map(d => toHours(d.light_seconds)), backgroundColor: '#EB8A3E' },
-        { label: 'REM', data: asc.map(d => toHours(d.rem_seconds)), backgroundColor: '#4A7A6D' },
-        { label: 'Wach', data: asc.map(d => toHours(d.awake_seconds)), backgroundColor: '#EBB582' },
+        { label: 'Tief', data: nights.map(n => toHours(n.deep)), backgroundColor: '#785A46' },
+        { label: 'Leicht', data: nights.map(n => toHours(n.light)), backgroundColor: '#EB8A3E' },
+        { label: 'REM', data: nights.map(n => toHours(n.rem)), backgroundColor: '#4A7A6D' },
+        { label: 'Wach', data: nights.map(n => toHours(n.awake)), backgroundColor: '#EBB582' },
       ]
     },
     options: {
+      indexAxis: 'y',
       responsive: true,
-      plugins: { legend: { labels: { color: axisColor(), font: { family: 'IBM Plex Mono', size: 10 } } } },
+      plugins: {
+        legend: { labels: { color: axisColor(), font: { family: 'IBM Plex Mono', size: 10 } } },
+        tooltip: {
+          callbacks: {
+            afterTitle: (items) => {
+              const n = nights[items[0].dataIndex];
+              return `${fmtTime(n.bedtime)} – ${fmtTime(n.waketime)} (${fmtDate(n.bedtime)}–${fmtDate(n.waketime)})`;
+            }
+          }
+        }
+      },
       scales: {
-        x: { stacked: true, ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
-        y: { stacked: true, ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() }, title: { display: true, text: 'Stunden', color: axisColor() } }
+        x: { stacked: true, ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() }, title: { display: true, text: 'Stunden', color: axisColor() } },
+        y: { stacked: true, ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } }
       }
     }
   });
