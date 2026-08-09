@@ -816,6 +816,10 @@ function groupSleepIntoNights(readings) {
   return nights;
 }
 
+const SLEEP_STAGE_COLORS = { deep: '#785A46', light: '#EB8A3E', rem: '#4A7A6D', awake: '#EBB582', other: '#B79A80' };
+const SLEEP_STAGE_LABELS = { deep: 'Tief', light: 'Leicht', rem: 'REM', awake: 'Wach', other: 'Sonstiges' };
+const SLEEP_X_REFERENCE_HOUR = 18; // Achse beginnt bei 18 Uhr des Bettgeh-Tages, damit alle Nächte an der Uhrzeit ausgerichtet sind
+
 function renderSleepChart() {
   const ctx = document.getElementById('chartSleep');
   if (charts.chartSleep) charts.chartSleep.destroy();
@@ -823,40 +827,78 @@ function renderSleepChart() {
   const nights = groupSleepIntoNights(syncData.sleep || []);
   if (!nights.length) return;
 
-  const toHours = (s) => Math.round((s / 3600) * 10) / 10;
   const fmtTime = (ms) => new Date(ms).toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' });
   const fmtDate = (ms) => new Date(ms).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' });
 
-  const labels = nights.map(n => fmtDate(n.waketime));
+  // je Nacht ein eigener Referenzpunkt (18 Uhr des Bettgeh-Tages), damit dieselbe
+  // Uhrzeit bei jeder Nacht auf denselben x-Wert fällt, auch über Mitternacht hinweg
+  const toXHours = (night, ms) => {
+    const bedDate = new Date(night.bedtime);
+    const ref = new Date(bedDate.getFullYear(), bedDate.getMonth(), bedDate.getDate(), SLEEP_X_REFERENCE_HOUR, 0, 0).getTime();
+    return (ms - ref) / 3600000;
+  };
+
+  const points = [];
+  for (const night of nights) {
+    const rowLabel = `${fmtDate(night.bedtime)} ${fmtTime(night.bedtime)}`;
+    for (const seg of night.segments) {
+      const stage = ['deep', 'light', 'rem', 'awake'].includes(seg.stage) ? seg.stage : 'other';
+      points.push({
+        x: [toXHours(night, seg.start), toXHours(night, seg.end)],
+        y: rowLabel,
+        stage,
+        segStart: seg.start,
+        segEnd: seg.end,
+      });
+    }
+  }
 
   charts.chartSleep = new Chart(ctx, {
     type: 'bar',
     data: {
-      labels,
-      datasets: [
-        { label: 'Tief', data: nights.map(n => toHours(n.deep)), backgroundColor: '#785A46' },
-        { label: 'Leicht', data: nights.map(n => toHours(n.light)), backgroundColor: '#EB8A3E' },
-        { label: 'REM', data: nights.map(n => toHours(n.rem)), backgroundColor: '#4A7A6D' },
-        { label: 'Wach', data: nights.map(n => toHours(n.awake)), backgroundColor: '#EBB582' },
-      ]
+      labels: nights.map(n => `${fmtDate(n.bedtime)} ${fmtTime(n.bedtime)}`),
+      datasets: [{
+        label: 'Schlafphasen',
+        data: points,
+        backgroundColor: (c) => SLEEP_STAGE_COLORS[c.raw?.stage] || SLEEP_STAGE_COLORS.other,
+        barThickness: 16,
+      }]
     },
     options: {
       indexAxis: 'y',
       responsive: true,
+      parsing: false,
       plugins: {
-        legend: { labels: { color: axisColor(), font: { family: 'IBM Plex Mono', size: 10 } } },
+        legend: {
+          labels: {
+            color: axisColor(),
+            font: { family: 'IBM Plex Mono', size: 10 },
+            generateLabels: () => Object.keys(SLEEP_STAGE_LABELS).map(key => ({
+              text: SLEEP_STAGE_LABELS[key],
+              fillStyle: SLEEP_STAGE_COLORS[key],
+              strokeStyle: SLEEP_STAGE_COLORS[key],
+            })),
+          }
+        },
         tooltip: {
           callbacks: {
-            afterTitle: (items) => {
-              const n = nights[items[0].dataIndex];
-              return `${fmtTime(n.bedtime)} – ${fmtTime(n.waketime)} (${fmtDate(n.bedtime)}–${fmtDate(n.waketime)})`;
-            }
+            title: (items) => SLEEP_STAGE_LABELS[items[0].raw.stage] || items[0].raw.stage,
+            label: (item) => `${fmtTime(item.raw.segStart)} – ${fmtTime(item.raw.segEnd)}`,
           }
         }
       },
       scales: {
-        x: { stacked: true, ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() }, title: { display: true, text: 'Stunden', color: axisColor() } },
-        y: { stacked: true, ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } }
+        x: {
+          ticks: {
+            color: axisColor(), font: { size: 10 },
+            callback: (val) => {
+              const h = Math.round(((SLEEP_X_REFERENCE_HOUR + val) % 24 + 24) % 24);
+              return `${String(h).padStart(2, '0')}:00`;
+            }
+          },
+          grid: { color: gridColor() },
+        },
+        y: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } }
       }
     }
   });
