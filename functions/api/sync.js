@@ -138,14 +138,27 @@ async function importPuls(env, rows) {
   if (batch.length) await env.DB.batch(batch);
 }
 
+// Die Schritte-CSV hat -- anders als Puls -- keine Datenquellen-Spalte. Wenn
+// Health Connect mehrere Quellen (z.B. Handy-Sensor + Google Fit) parallel
+// mitschreibt, tauchen für denselben Moment mehrere unabhängige Zählungen auf,
+// die sich nicht als exakte Duplikate erkennen lassen und die Tagessumme massiv
+// aufblähen. Ohne Quellen-Info bleibt nur eine Heuristik: pro Minute wird nur der
+// höchste gemeldete Wert übernommen (nicht die Summe aller Quellen für diese
+// Minute) -- eine Annäherung, aber deutlich näher an der Realität als rohes
+// Aufsummieren.
 async function importSchritte(env, rows) {
-  const parsed = [];
+  const perMinute = new Map();
   for (const r of rows) {
     const { date, time } = splitHealthSyncTimestamp(r["Datum"]);
     const steps = toInt(r["Schritte"]);
     if (!date || steps === null) continue;
-    parsed.push({ _date: date, time, steps });
+    const minuteKey = `${date}|${time.slice(0, 5)}`;
+    const existing = perMinute.get(minuteKey);
+    if (!existing || steps > existing.steps) {
+      perMinute.set(minuteKey, { _date: date, time, steps });
+    }
   }
+  const parsed = [...perMinute.values()];
   await replaceByDate(env, "sync_steps_readings", "entry_date", parsed);
   const stmt = env.DB.prepare(
     `INSERT OR IGNORE INTO sync_steps_readings (entry_date, reading_time, steps) VALUES (?, ?, ?)`
