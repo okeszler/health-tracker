@@ -808,7 +808,7 @@ function groupSleepIntoNights(readings) {
   const nights = [];
   let current = null;
   for (const r of withTimes) {
-    if (!current || r.start - current.end > SLEEP_GAP_HOURS * 3600 * 1000) {
+    if (!current || r.start - current.waketime > SLEEP_GAP_HOURS * 3600 * 1000) {
       current = { segments: [], bedtime: r.start, waketime: r.end, deep: 0, light: 0, rem: 0, awake: 0, other: 0 };
       nights.push(current);
     }

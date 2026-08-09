@@ -24,7 +24,7 @@ function groupSleepIntoNights(readings) {
   const nights = [];
   let current = null;
   for (const r of withTimes) {
-    if (!current || r.start - current.end > SLEEP_GAP_HOURS * 3600 * 1000) {
+    if (!current || r.start - current.waketime > SLEEP_GAP_HOURS * 3600 * 1000) {
       current = { bedtime: r.start, waketime: r.end };
       nights.push(current);
     }
@@ -39,8 +39,12 @@ function toSqlDateTime(ms) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
+const NIGHT_MIN_HOURS = 3; // kurze Nickerchen tagsüber sollen die echte Nacht am selben Wachtag nicht überschreiben
+
 async function computeRestingHr(env, sleepReadings) {
-  const nights = groupSleepIntoNights(sleepReadings);
+  const nights = groupSleepIntoNights(sleepReadings).filter(
+    (n) => n.waketime - n.bedtime >= NIGHT_MIN_HOURS * 3600 * 1000
+  );
   const restingByDate = {};
   for (const night of nights) {
     const wakeDate = new Date(night.waketime).toISOString().slice(0, 10);
