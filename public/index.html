@@ -196,7 +196,7 @@
     <div class="charts">
       <div class="chart-card"><h3>Gewicht</h3><canvas id="chartWeight" height="140"></canvas></div>
       <div class="chart-card"><h3>Körperzusammensetzung</h3><canvas id="chartComp" height="140"></canvas></div>
-      <div class="chart-card"><h3>Blutdruck & Puls <span style="font-weight:400; text-transform:none;">(manuell + Health Sync)</span></h3><canvas id="chartBP" height="140"></canvas></div>
+      <div class="chart-card"><h3>Blutdruck & Ruhepuls <span style="font-weight:400; text-transform:none;">(manuell + Health Sync)</span></h3><canvas id="chartBP" height="140"></canvas></div>
       <div class="chart-card">
         <h3 style="display:flex; justify-content:space-between; align-items:center;">
           Blutwerte
@@ -427,8 +427,12 @@ function renderCombinedBPChart() {
     agg.count += 1;
     bpByDate[r.entry_date] = agg;
   }
+  // Ruhepuls (Ø während der Schlafnacht) statt Tagesdurchschnitt -- der wird durch
+  // wache Aktivität (Sport etc.) verzerrt und sagt über den Ruhepuls nichts aus.
   const pulseByDate = {};
-  for (const p of (syncData.pulse || [])) pulseByDate[p.entry_date] = p.avg_bpm;
+  for (const p of (syncData.pulse || [])) {
+    if (p.resting_bpm != null) pulseByDate[p.entry_date] = p.resting_bpm;
+  }
 
   const dates = [...new Set([
     ...Object.keys(manualByDate),
@@ -452,7 +456,7 @@ function renderCombinedBPChart() {
       datasets: [
         { label: 'systolisch', data: systolic, borderColor: '#D24136', spanGaps: true, tension: 0.3, pointRadius: 2 },
         { label: 'diastolisch', data: diastolic, borderColor: '#EB8A3E', spanGaps: true, tension: 0.3, pointRadius: 2 },
-        { label: 'Puls', data: pulse, borderColor: '#4A7A6D', spanGaps: true, tension: 0.3, pointRadius: 2 },
+        { label: 'Ruhepuls', data: pulse, borderColor: '#4A7A6D', spanGaps: true, tension: 0.3, pointRadius: 2 },
       ]
     },
     options: {
