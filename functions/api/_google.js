@@ -85,8 +85,8 @@ export async function downloadDriveFile(token, fileId) {
   return res.text();
 }
 
-// Simpler CSV-Parser (reicht für die Health-Sync-Exporte: einfache Kommas,
-// optionale Anführungszeichen, keine verschachtelten Quotes).
+// CSV-Parser für die Health-Sync-Exporte: Kommas, optionale Anführungszeichen,
+// inkl. RFC4180-Escaping ("" innerhalb eines gequoteten Felds -> ein literales ").
 export function parseCsv(text) {
   const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
   if (!lines.length) return [];
@@ -106,6 +106,11 @@ function splitCsvLine(line) {
   for (let i = 0; i < line.length; i++) {
     const c = line[i];
     if (c === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        cur += '"';
+        i++; // escapte Anführungszeichen ("") -> ein literales "
+        continue;
+      }
       inQuotes = !inQuotes;
       continue;
     }

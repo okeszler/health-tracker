@@ -3,6 +3,15 @@
 // PUT    /api/labs                -> bestehenden Laborwert bearbeiten (id Pflicht)
 // DELETE /api/labs?id=123         -> Laborwert löschen
 
+// Laborwerte sind frei benannt (beliebiger Testname + Einheit), deshalb keine
+// festen Wertebereiche -- nur Grundplausibilität (Datum, endliche Zahl).
+function validateLab({ entry_date, test_name, value }) {
+  if (!entry_date || !/^\d{4}-\d{2}-\d{2}$/.test(entry_date)) return "entry_date fehlt oder ungültig (YYYY-MM-DD)";
+  if (!test_name || !String(test_name).trim()) return "test_name fehlt";
+  if (typeof value !== "number" || !isFinite(value)) return "value muss eine Zahl sein";
+  return null;
+}
+
 export async function onRequestGet({ env }) {
   const { results } = await env.DB.prepare(
     "SELECT * FROM lab_results ORDER BY entry_date DESC, id DESC"
@@ -14,11 +23,9 @@ export async function onRequestPost({ request, env }) {
   const body = await request.json();
   const { entry_date, test_name, value, unit = null, note = null } = body;
 
-  if (!entry_date || !test_name || value === undefined || value === null) {
-    return new Response(
-      JSON.stringify({ error: "entry_date, test_name und value sind Pflicht" }),
-      { status: 400 }
-    );
+  const validationError = validateLab({ entry_date, test_name, value });
+  if (validationError) {
+    return new Response(JSON.stringify({ error: validationError }), { status: 400 });
   }
 
   await env.DB.prepare(
@@ -35,11 +42,12 @@ export async function onRequestPut({ request, env }) {
   const body = await request.json();
   const { id, entry_date, test_name, value, unit = null, note = null } = body;
 
-  if (!id || !entry_date || !test_name || value === undefined || value === null) {
-    return new Response(
-      JSON.stringify({ error: "id, entry_date, test_name und value sind Pflicht" }),
-      { status: 400 }
-    );
+  if (!id) {
+    return new Response(JSON.stringify({ error: "id fehlt" }), { status: 400 });
+  }
+  const validationError = validateLab({ entry_date, test_name, value });
+  if (validationError) {
+    return new Response(JSON.stringify({ error: validationError }), { status: 400 });
   }
 
   await env.DB.prepare(

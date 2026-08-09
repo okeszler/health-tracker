@@ -5,6 +5,8 @@
 
 const COOKIE_NAME = "ht_session";
 const MAX_AGE = 60 * 60 * 24 * 30; // 30 Tage
+const RATE_LIMIT_WINDOW_MIN = 15;
+const RATE_LIMIT_MAX_ATTEMPTS = 8;
 
 async function sha256Hex(input) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
@@ -67,7 +69,7 @@ function loginPage(error) {
   <form id="loginForm">
     <div class="eyebrow">Health Tracker</div>
     <h1>Anmelden</h1>
-    ${error ? `<div class="error">${error}</div>` : ""}
+    <div class="error" id="loginError" style="${error ? "" : "display:none"}">${error || ""}</div>
     <label for="password">Passwort</label>
     <input type="password" id="password" name="password" autofocus required>
     <button type="submit">Einloggen</button>
@@ -76,6 +78,7 @@ function loginPage(error) {
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const password = document.getElementById('password').value;
+      const errEl = document.getElementById('loginError');
       const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -84,7 +87,9 @@ function loginPage(error) {
       if (res.ok) {
         location.reload();
       } else {
-        location.href = '/?error=1';
+        const data = await res.json().catch(() => ({}));
+        errEl.textContent = data.error || 'Falsches Passwort — bitte erneut versuchen.';
+        errEl.style.display = 'block';
       }
     });
   </script>
@@ -102,8 +107,25 @@ export async function onRequest(context) {
   const url = new URL(request.url);
 
   if (url.pathname === "/api/login" && request.method === "POST") {
+    const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+
+    if (env.DB) {
+      const { results } = await env.DB.prepare(
+        `SELECT COUNT(*) AS n FROM login_attempts WHERE ip = ? AND attempted_at > datetime('now', ?)`
+      )
+        .bind(ip, `-${RATE_LIMIT_WINDOW_MIN} minutes`)
+        .all();
+      if ((results[0]?.n || 0) >= RATE_LIMIT_MAX_ATTEMPTS) {
+        return new Response(
+          JSON.stringify({ ok: false, error: `Zu viele Versuche. Bitte in ${RATE_LIMIT_WINDOW_MIN} Minuten erneut versuchen.` }),
+          { status: 429, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    }
+
     const body = await request.json().catch(() => ({}));
     if (body.password === password) {
+      if (env.DB) await env.DB.prepare("DELETE FROM login_attempts WHERE ip = ?").bind(ip).run();
       const token = await sessionToken(password);
       const headers = new Headers({ "Content-Type": "application/json" });
       headers.append(
@@ -112,6 +134,7 @@ export async function onRequest(context) {
       );
       return new Response(JSON.stringify({ ok: true }), { headers });
     }
+    if (env.DB) await env.DB.prepare("INSERT INTO login_attempts (ip) VALUES (?)").bind(ip).run();
     return new Response(JSON.stringify({ ok: false, error: "Falsches Passwort" }), {
       status: 401,
       headers: { "Content-Type": "application/json" },

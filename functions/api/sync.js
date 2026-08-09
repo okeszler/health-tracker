@@ -186,10 +186,22 @@ async function importSchlaf(env, rows) {
 }
 
 async function importAktivitaeten(env, rows) {
+  // ON CONFLICT DO UPDATE statt IGNORE: liefert Health Sync später eine korrigierte
+  // Version derselben Aktivität (gleiches Datum/Startzeit/Typ, aber z.B. andere
+  // Distanz/Kalorien), soll die neue Version die alte ersetzen statt ignoriert zu werden.
   const stmt = env.DB.prepare(
-    `INSERT OR IGNORE INTO sync_activities
+    `INSERT INTO sync_activities
        (entry_date, start_time, activity_type, source_app, elapsed_seconds, active_seconds, distance_km, calories, steps, avg_hr, max_hr)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(entry_date, start_time, activity_type) DO UPDATE SET
+       source_app = excluded.source_app,
+       elapsed_seconds = excluded.elapsed_seconds,
+       active_seconds = excluded.active_seconds,
+       distance_km = excluded.distance_km,
+       calories = excluded.calories,
+       steps = excluded.steps,
+       avg_hr = excluded.avg_hr,
+       max_hr = excluded.max_hr`
   );
   const batch = [];
   for (const r of rows) {
@@ -232,11 +244,16 @@ async function importGewicht(env, rows) {
 
 // Die Blutdruck-Exportdateien sind Monats-/Wochen-Sammlungen, die sich überlappen
 // können (dieselbe Messung taucht in mehreren Dateien auf) -- deshalb Einzelzeilen
-// mit UNIQUE-Constraint statt Tages-Aggregation, INSERT OR IGNORE verhindert Dubletten.
+// mit UNIQUE-Constraint statt Tages-Aggregation. ON CONFLICT DO UPDATE statt IGNORE,
+// damit sich Puls/Kommentar aktualisieren, falls eine spätere Datei dieselbe Messung
+// (gleiche Zeit + systolisch/diastolisch) mit ergänzten Werten liefert.
 async function importBlutdruck(env, rows) {
   const stmt = env.DB.prepare(
-    `INSERT OR IGNORE INTO sync_bp_readings (entry_date, reading_time, systolic, diastolic, pulse, note)
-     VALUES (?, ?, ?, ?, ?, ?)`
+    `INSERT INTO sync_bp_readings (entry_date, reading_time, systolic, diastolic, pulse, note)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(entry_date, reading_time, systolic, diastolic) DO UPDATE SET
+       pulse = excluded.pulse,
+       note = excluded.note`
   );
   const batch = [];
   for (const r of rows) {

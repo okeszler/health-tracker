@@ -23,6 +23,7 @@ Cloudflare Pages + D1, gleiches Muster wie die anderen Cloudflare-Apps
 - `migration_sync_v3.sql` — bereinigt Doppelzählungen durch überlappende Backfill-
   Exportdateien (z.B. "Schritte 2026.07.08-2026.08.07...csv"); der Import ersetzt
   jetzt pro Datei die betroffenen Tage komplett statt Messungen nur zu addieren
+- `migration_login_attempts.sql` — Tabelle fürs Rate-Limiting beim Login (Brute-Force-Schutz)
 - `wrangler.toml`, `package.json` — Konfiguration
 
 ## Passwortschutz

@@ -10,7 +10,8 @@
     "db:migrate-sync": "wrangler d1 execute health-tracker --remote --file=migration_sync.sql",
     "db:migrate-sync-bp": "wrangler d1 execute health-tracker --remote --file=migration_sync_bp.sql",
     "db:migrate-sync-v2": "wrangler d1 execute health-tracker --remote --file=migration_sync_v2.sql",
-    "db:migrate-sync-v3": "wrangler d1 execute health-tracker --remote --file=migration_sync_v3.sql"
+    "db:migrate-sync-v3": "wrangler d1 execute health-tracker --remote --file=migration_sync_v3.sql",
+    "db:migrate-login-attempts": "wrangler d1 execute health-tracker --remote --file=migration_login_attempts.sql"
   },
   "devDependencies": {
     "wrangler": "^3.90.0"

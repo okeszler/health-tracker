@@ -114,6 +114,7 @@
   }
   button.save:hover { filter: brightness(1.08); }
   button.save:active { transform: translateY(1px); }
+  button.save:disabled { opacity: 0.6; cursor: default; }
   button.cancel {
     grid-column: 1 / -1; background: none; color: var(--text-dim); border: 1px solid var(--line); border-radius: 6px;
     padding: 10px; font-weight: 500; font-size: 13px; cursor: pointer; margin-top: -2px;
@@ -151,6 +152,20 @@
   button.sync:disabled { opacity: 0.6; cursor: default; }
   .sync-status { font-size: 12px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; }
 
+  .goals-bar {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 28px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text-dim);
+  }
+  .goals-bar .goals-label { text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+  .goals-bar label { display: flex; align-items: center; gap: 6px; color: var(--text-dim); }
+  .goals-bar input {
+    width: 70px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; color: var(--text);
+    padding: 6px 8px; font-family: 'IBM Plex Mono', monospace; font-size: 13px;
+  }
+  .goals-bar input:focus { outline: none; border-color: var(--honey); }
+  .goal-hint { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+
   header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
   button.theme-toggle {
     background: var(--surface); border: 1px solid var(--line); color: var(--text-dim); border-radius: 999px;
@@ -172,6 +187,14 @@
   </header>
 
   <div class="vitals" id="vitals"></div>
+
+  <div class="goals-bar">
+    <span class="goals-label">Ziele</span>
+    <label>Gewicht <input type="number" step="0.1" id="goalWeight" placeholder="kg"> kg</label>
+    <label>Körperfett <input type="number" step="0.1" id="goalBodyFat" placeholder="%"> %</label>
+    <button class="sync" id="goalsSaveBtn" type="button">Speichern</button>
+    <span class="sync-status" id="goalsStatus"></span>
+  </div>
 
   <section>
     <h2>Eintrag erfassen</h2>
@@ -259,6 +282,13 @@
 </div>
 
 <script>
+// Freitext (Notizen, Testnamen, Health-Sync-Werte) landet per Template-Literal in
+// innerHTML -- ohne Escaping wäre das Stored XSS möglich (z.B. Notiz "<img onerror=...>").
+function escapeHtml(v) {
+  if (v === null || v === undefined) return '';
+  return String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 function axisColor() { return getComputedStyle(document.documentElement).getPropertyValue('--text-dim').trim(); }
 function gridColor() { return getComputedStyle(document.documentElement).getPropertyValue('--line').trim(); }
 
@@ -299,11 +329,41 @@ let charts = {};
 let selectedLabTest = null;
 
 async function loadGoals() {
-  goals = await fetch('/api/goals').then(r => r.json());
+  try {
+    goals = await fetch('/api/goals').then(r => r.json());
+    renderVitals();
+    try { renderCharts(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
+    document.getElementById('goalWeight').value = goals.weight_kg ?? '';
+    document.getElementById('goalBodyFat').value = goals.body_fat_pct ?? '';
+  } catch (e) { console.error('Ziele laden fehlgeschlagen', e); }
 }
 
+document.getElementById('goalsSaveBtn').addEventListener('click', async () => {
+  const statusEl = document.getElementById('goalsStatus');
+  const weight = document.getElementById('goalWeight').value;
+  const bodyFat = document.getElementById('goalBodyFat').value;
+  statusEl.textContent = 'speichert…';
+  const res = await fetch('/api/goals', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      weight_kg: weight === '' ? null : Number(weight),
+      body_fat_pct: bodyFat === '' ? null : Number(bodyFat),
+    }),
+  });
+  statusEl.textContent = res.ok ? 'gespeichert.' : 'Fehler.';
+  setTimeout(() => statusEl.textContent = '', 2000);
+  await loadGoals();
+});
+
 async function loadData() {
-  data = await fetch('/api/metrics').then(r => r.json());
+  try {
+    data = await fetch('/api/metrics').then(r => r.json());
+  } catch (e) {
+    console.error('Vitals laden fehlgeschlagen', e);
+    document.getElementById('logWrap').innerHTML = '<div class="empty">Fehler beim Laden.</div>';
+    return;
+  }
   renderVitals();
   renderLog();
   try { renderCharts(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
@@ -311,14 +371,20 @@ async function loadData() {
 }
 
 async function loadLabs() {
-  labs = await fetch('/api/labs').then(r => r.json());
+  try {
+    labs = await fetch('/api/labs').then(r => r.json());
+  } catch (e) {
+    console.error('Blutwerte laden fehlgeschlagen', e);
+    document.getElementById('labLogWrap').innerHTML = '<div class="empty">Fehler beim Laden.</div>';
+    return;
+  }
   const testNames = [...new Set(labs.map(l => l.test_name))].sort();
   const datalist = document.getElementById('testNames');
-  datalist.innerHTML = testNames.map(n => `<option value="${n}">`).join('');
+  datalist.innerHTML = testNames.map(n => `<option value="${escapeHtml(n)}">`).join('');
 
   const select = document.getElementById('labSelect');
   const prevSelection = selectedLabTest;
-  select.innerHTML = testNames.map(n => `<option value="${n}">${n}</option>`).join('');
+  select.innerHTML = testNames.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
   if (testNames.length) {
     selectedLabTest = testNames.includes(prevSelection) ? prevSelection : testNames[0];
     select.value = selectedLabTest;
@@ -343,8 +409,8 @@ function renderVitals() {
   if (!latest) { el.innerHTML = '<div class="empty" style="padding:16px">Noch keine Einträge — leg unten los.</div>'; return; }
 
   const rows = [
-    { label: 'Gewicht', v: latest.weight_kg, unit: 'kg', pv: prev?.weight_kg, lowerBetter: true },
-    { label: 'Körperfett', v: latest.body_fat_pct, unit: '%', pv: prev?.body_fat_pct, lowerBetter: true },
+    { label: 'Gewicht', v: latest.weight_kg, unit: 'kg', pv: prev?.weight_kg, lowerBetter: true, goal: goals.weight_kg },
+    { label: 'Körperfett', v: latest.body_fat_pct, unit: '%', pv: prev?.body_fat_pct, lowerBetter: true, goal: goals.body_fat_pct },
     { label: 'Muskel', v: latest.muscle_pct, unit: '%', pv: prev?.muscle_pct, lowerBetter: false },
     { label: 'Körperwasser', v: latest.body_water_pct, unit: '%', pv: prev?.body_water_pct, lowerBetter: false },
     { label: 'Blutdruck', v: latest.bp_systolic && latest.bp_diastolic ? `${latest.bp_systolic}/${latest.bp_diastolic}` : null, unit: 'mmHg' },
@@ -358,10 +424,17 @@ function renderVitals() {
       const improving = r.lowerBetter ? diff < 0 : diff > 0;
       delta = `<div class="delta ${improving ? 'neg' : 'pos'}">${diff > 0 ? '+' : ''}${diff} vs. letzter Eintrag</div>`;
     }
+    let goalHint = '';
+    if (r.goal != null && r.v != null && typeof r.v === 'number') {
+      const toGo = (r.v - r.goal).toFixed(1);
+      const reached = r.lowerBetter ? r.v <= r.goal : r.v >= r.goal;
+      goalHint = `<div class="goal-hint">Ziel ${r.goal}${r.unit} ${reached ? '✓ erreicht' : `(${toGo > 0 ? '+' : ''}${toGo}${r.unit})`}</div>`;
+    }
     return `<div class="vital">
       <div class="label">${r.label}</div>
       <div class="value">${r.v ?? '—'}${r.v != null ? `<span class="unit">${r.unit}</span>` : ''}</div>
       ${delta}
+      ${goalHint}
     </div>`;
   }).join('');
 }
@@ -370,24 +443,35 @@ function buildChart(id, values, opts = {}) {
   const ctx = document.getElementById(id);
   if (charts[id]) charts[id].destroy();
   const asc = [...data].reverse();
+  const datasets = values.map(v => ({
+    label: v.label,
+    data: asc.map(d => d[v.key]),
+    borderColor: v.color,
+    backgroundColor: v.color + '33',
+    spanGaps: true,
+    tension: 0.3,
+    pointRadius: 2,
+    fill: v.fill || false,
+  }));
+  if (opts.goalValue != null) {
+    datasets.push({
+      label: 'Ziel',
+      data: asc.map(() => opts.goalValue),
+      borderColor: axisColor(),
+      borderDash: [4, 4],
+      pointRadius: 0,
+      fill: false,
+    });
+  }
   charts[id] = new Chart(ctx, {
     type: 'line',
     data: {
       labels: asc.map(d => d.entry_date.slice(5)),
-      datasets: values.map(v => ({
-        label: v.label,
-        data: asc.map(d => d[v.key]),
-        borderColor: v.color,
-        backgroundColor: v.color + '33',
-        spanGaps: true,
-        tension: 0.3,
-        pointRadius: 2,
-        fill: v.fill || false,
-      }))
+      datasets
     },
     options: {
       responsive: true,
-      plugins: { legend: { display: values.length > 1, labels: { color: axisColor(), font: { family: 'IBM Plex Mono', size: 10 } } } },
+      plugins: { legend: { display: values.length > 1 || opts.goalValue != null, labels: { color: axisColor(), font: { family: 'IBM Plex Mono', size: 10 } } } },
       scales: {
         x: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
         y: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } }
@@ -398,7 +482,7 @@ function buildChart(id, values, opts = {}) {
 
 function renderCharts() {
   if (!data.length) return;
-  buildChart('chartWeight', [{ key: 'weight_kg', label: 'kg', color: '#EB8A3E', fill: true }]);
+  buildChart('chartWeight', [{ key: 'weight_kg', label: 'kg', color: '#EB8A3E', fill: true }], { goalValue: goals.weight_kg });
   buildChart('chartComp', [
     { key: 'body_fat_pct', label: 'Fett %', color: '#D24136' },
     { key: 'muscle_pct', label: 'Muskel %', color: '#EB8A3E' },
@@ -605,13 +689,14 @@ function renderLog() {
     <td>${d.body_water_pct ?? '—'}</td>
     <td>${d.bp_systolic && d.bp_diastolic ? `${d.bp_systolic}/${d.bp_diastolic}` : '—'}</td>
     <td>${d.pulse ?? '—'}</td>
-    <td class="note">${d.note ?? ''}</td>
+    <td class="note">${escapeHtml(d.note)}</td>
     <td><button class="edit" data-date="${d.entry_date}">bearbeiten</button><button class="del" data-date="${d.entry_date}">löschen</button></td>
   </tr>`).join('')}
   </tbody></table>`;
 
   wrap.querySelectorAll('.del').forEach(btn => {
     btn.addEventListener('click', async () => {
+      if (!confirm(`Eintrag vom ${btn.dataset.date} wirklich löschen?`)) return;
       await fetch(`/api/metrics?date=${btn.dataset.date}`, { method: 'DELETE' });
       loadData();
     });
@@ -660,16 +745,19 @@ function renderLabLog() {
   </tr></thead><tbody>
   ${labs.map(l => `<tr>
     <td>${l.entry_date}</td>
-    <td>${l.test_name}</td>
+    <td>${escapeHtml(l.test_name)}</td>
     <td>${l.value}</td>
-    <td>${l.unit ?? ''}</td>
-    <td class="note">${l.note ?? ''}</td>
+    <td>${escapeHtml(l.unit)}</td>
+    <td class="note">${escapeHtml(l.note)}</td>
     <td><button class="edit" data-id="${l.id}">bearbeiten</button><button class="del" data-id="${l.id}">löschen</button></td>
   </tr>`).join('')}
   </tbody></table>`;
 
   wrap.querySelectorAll('.del').forEach(btn => {
     btn.addEventListener('click', async () => {
+      const row = labs.find(l => l.id === Number(btn.dataset.id));
+      const label = row ? `${row.test_name} vom ${row.entry_date}` : 'diesen Blutwert';
+      if (!confirm(`${label} wirklich löschen?`)) return;
       await fetch(`/api/labs?id=${btn.dataset.id}`, { method: 'DELETE' });
       loadLabs();
     });
@@ -716,12 +804,15 @@ document.getElementById('entryForm').addEventListener('submit', async (e) => {
   }
 
   const statusEl = document.getElementById('formStatus');
+  const saveBtn = document.getElementById('entrySaveBtn');
   statusEl.textContent = 'speichert…';
+  saveBtn.disabled = true;
   const res = await fetch('/api/metrics', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
+  saveBtn.disabled = false;
   statusEl.textContent = res.ok ? 'gespeichert.' : 'Fehler beim Speichern.';
   setTimeout(() => statusEl.textContent = '', 2000);
   resetEntryForm();
@@ -742,22 +833,31 @@ document.getElementById('labForm').addEventListener('submit', async (e) => {
   if (id) payload.id = Number(id);
 
   const statusEl = document.getElementById('labFormStatus');
+  const saveBtn = document.getElementById('labSaveBtn');
   statusEl.textContent = 'speichert…';
+  saveBtn.disabled = true;
   const res = await fetch('/api/labs', {
     method: id ? 'PUT' : 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
+  saveBtn.disabled = false;
   statusEl.textContent = res.ok ? 'gespeichert.' : 'Fehler beim Speichern.';
   setTimeout(() => statusEl.textContent = '', 2000);
   resetLabForm();
   loadLabs();
 });
 
-let syncData = { steps: [], pulse: [], sleep: [], activities: [], weight: [], bp: [] };
+let syncData = { steps: [], pulse: [], sleep: [], nights: [], activities: [], weight: [], bp: [] };
 
 async function loadSyncData() {
-  syncData = await fetch('/api/sync-data').then(r => r.json());
+  try {
+    syncData = await fetch('/api/sync-data').then(r => r.json());
+  } catch (e) {
+    console.error('Health-Sync-Daten laden fehlgeschlagen', e);
+    document.getElementById('activitiesLogWrap').innerHTML = '<div class="empty">Fehler beim Laden.</div>';
+    return;
+  }
   renderActivitiesLog();
   try { renderSyncCharts(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
 }
@@ -790,36 +890,10 @@ function renderStepsChart() {
   });
 }
 
-// Eine Nacht überspannt oft zwei Kalendertage (z.B. 23 Uhr abends bis 7 Uhr
-// morgens) -- die rohen Messungen kommen chronologisch, hier zu zusammenhängenden
-// Nächten gruppiert: neue Nacht, sobald zwischen zwei Messungen mehr als
-// GAP_HOURS Stunden Lücke liegt (z.B. der wache Tag dazwischen).
-const SLEEP_GAP_HOURS = 4;
-
-function groupSleepIntoNights(readings) {
-  const withTimes = readings
-    .map(r => {
-      const start = new Date(`${r.entry_date}T${r.reading_time}`).getTime();
-      return { ...r, start, end: start + r.duration_seconds * 1000 };
-    })
-    .filter(r => !isNaN(r.start))
-    .sort((a, b) => a.start - b.start);
-
-  const nights = [];
-  let current = null;
-  for (const r of withTimes) {
-    if (!current || r.start - current.waketime > SLEEP_GAP_HOURS * 3600 * 1000) {
-      current = { segments: [], bedtime: r.start, waketime: r.end, deep: 0, light: 0, rem: 0, awake: 0, other: 0 };
-      nights.push(current);
-    }
-    current.segments.push(r);
-    current.waketime = Math.max(current.waketime, r.end);
-    const bucket = ['deep', 'light', 'rem', 'awake'].includes(r.stage) ? r.stage : 'other';
-    current[bucket] += r.duration_seconds;
-  }
-  return nights;
-}
-
+// Die Nacht-Gruppierung (eine Nacht überspannt oft zwei Kalendertage) passiert
+// serverseitig in functions/api/sync-data.js -- syncData.nights kommt fertig
+// gruppiert an, damit es diese Logik nicht doppelt (und potenziell inkonsistent)
+// im Frontend gibt.
 const SLEEP_STAGE_COLORS = { deep: '#785A46', light: '#EB8A3E', rem: '#4A7A6D', awake: '#EBB582', other: '#B79A80' };
 const SLEEP_STAGE_LABELS = { deep: 'Tief', light: 'Leicht', rem: 'REM', awake: 'Wach', other: 'Sonstiges' };
 const SLEEP_X_REFERENCE_HOUR = 18; // Achse beginnt bei 18 Uhr des Bettgeh-Tages, damit alle Nächte an der Uhrzeit ausgerichtet sind
@@ -828,7 +902,7 @@ function renderSleepChart() {
   const ctx = document.getElementById('chartSleep');
   if (charts.chartSleep) charts.chartSleep.destroy();
 
-  const nights = groupSleepIntoNights(syncData.sleep || []);
+  const nights = syncData.nights || [];
   if (!nights.length) return;
 
   const fmtTime = (ms) => new Date(ms).toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' });
@@ -917,7 +991,7 @@ function renderActivitiesLog() {
   ${syncData.activities.map(a => `<tr>
     <td>${a.entry_date}</td>
     <td>${a.start_time ?? ''}</td>
-    <td>${a.activity_type ?? '—'}</td>
+    <td>${escapeHtml(a.activity_type) || '—'}</td>
     <td>${a.active_seconds != null ? Math.round(a.active_seconds / 60) + ' min' : '—'}</td>
     <td>${a.distance_km != null ? a.distance_km.toFixed(2) + ' km' : '—'}</td>
     <td>${a.calories != null ? Math.round(a.calories) + ' kcal' : '—'}</td>
@@ -953,10 +1027,10 @@ document.getElementById('syncBtn').addEventListener('click', async () => {
 });
 
 (async function init() {
-  await loadGoals();
-  await loadData();
-  await loadLabs();
-  await loadSyncData();
+  // parallel + jeweils intern try/catch (siehe loadGoals/loadData/loadLabs/
+  // loadSyncData) -- ein Fehler bei einer Quelle (z.B. Health Sync) darf die
+  // anderen Bereiche des Dashboards nicht blockieren.
+  await Promise.allSettled([loadGoals(), loadData(), loadLabs(), loadSyncData()]);
 })();
 
 if ('serviceWorker' in navigator) {
