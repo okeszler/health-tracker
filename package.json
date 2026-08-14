@@ -12,7 +12,8 @@
     "db:migrate-sync-v2": "wrangler d1 execute health-tracker --remote --file=migration_sync_v2.sql",
     "db:migrate-sync-v3": "wrangler d1 execute health-tracker --remote --file=migration_sync_v3.sql",
     "db:migrate-login-attempts": "wrangler d1 execute health-tracker --remote --file=migration_login_attempts.sql",
-    "db:migrate-weight-composition": "wrangler d1 execute health-tracker --remote --file=migration_weight_composition.sql"
+    "db:migrate-weight-composition": "wrangler d1 execute health-tracker --remote --file=migration_weight_composition.sql",
+    "db:migrate-weight-water": "wrangler d1 execute health-tracker --remote --file=migration_weight_water.sql"
   },
   "devDependencies": {
     "wrangler": "^3.90.0"

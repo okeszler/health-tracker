@@ -201,8 +201,9 @@
     <form class="entry" id="entryForm">
       <div class="field"><label>Datum</label><input type="date" name="entry_date" required></div>
       <div class="field"><label>Gewicht (kg)</label><input type="number" step="0.1" name="weight_kg"></div>
-      <div class="field"><label>Körperfett (%)</label><input type="number" step="0.1" name="body_fat_pct"></div>
+      <div class="field"><label>Fettmasse (kg)</label><input type="number" step="0.1" name="fat_kg"></div>
       <div class="field"><label>Muskel (kg)</label><input type="number" step="0.1" name="muscle_kg"></div>
+      <div class="field"><label>Körperwasser (kg)</label><input type="number" step="0.1" name="water_kg"></div>
       <div class="field"><label>RR systolisch</label><input type="number" name="bp_systolic"></div>
       <div class="field"><label>RR diastolisch</label><input type="number" name="bp_diastolic"></div>
       <div class="field"><label>Puls</label><input type="number" name="pulse"></div>
@@ -414,6 +415,7 @@ function renderVitals() {
     { label: 'Gewicht', v: mLatest?.weight_kg, unit: 'kg', pv: mPrev?.weight_kg, lowerBetter: true, goal: goals.weight_kg },
     { label: 'Körperfett', v: mLatest?.body_fat_pct, unit: '%', pv: mPrev?.body_fat_pct, lowerBetter: true, goal: goals.body_fat_pct },
     { label: 'Muskel', v: mLatest?.muscle_pct, unit: '%', pv: mPrev?.muscle_pct, lowerBetter: false },
+    { label: 'Körperwasser', v: mLatest?.body_water_pct, unit: '%', pv: mPrev?.body_water_pct, lowerBetter: false },
     { label: 'Blutdruck', v: latest?.bp_systolic && latest?.bp_diastolic ? `${latest.bp_systolic}/${latest.bp_diastolic}` : null, unit: 'mmHg' },
     { label: 'Puls', v: latest?.pulse, unit: 'bpm' },
   ];
@@ -461,6 +463,7 @@ function buildMergedWeightSeries() {
     weight_kg: mergeNum(manualByDate[entry_date]?.weight_kg, syncByDate[entry_date]?.weight_kg),
     body_fat_pct: mergeNum(manualByDate[entry_date]?.body_fat_pct, syncByDate[entry_date]?.body_fat_pct),
     muscle_pct: mergeNum(manualByDate[entry_date]?.muscle_pct, syncByDate[entry_date]?.muscle_pct),
+    body_water_pct: mergeNum(manualByDate[entry_date]?.body_water_pct, syncByDate[entry_date]?.body_water_pct),
   }));
 }
 
@@ -512,6 +515,7 @@ function renderCharts() {
   buildChart('chartComp', [
     { key: 'body_fat_pct', label: 'Fett %', color: '#D24136' },
     { key: 'muscle_pct', label: 'Muskel %', color: '#EB8A3E' },
+    { key: 'body_water_pct', label: 'Wasser %', color: '#4A7A6D' },
   ], { source: merged });
 }
 
@@ -704,13 +708,14 @@ function renderLog() {
   const wrap = document.getElementById('logWrap');
   if (!data.length) { wrap.innerHTML = '<div class="empty">Noch keine Einträge.</div>'; return; }
   wrap.innerHTML = `<table class="log"><thead><tr>
-    <th>Datum</th><th>Gewicht</th><th>Fett %</th><th>Muskel %</th><th>RR</th><th>Puls</th><th>Notiz</th><th></th>
+    <th>Datum</th><th>Gewicht</th><th>Fett %</th><th>Muskel %</th><th>Wasser %</th><th>RR</th><th>Puls</th><th>Notiz</th><th></th>
   </tr></thead><tbody>
   ${data.map(d => `<tr>
     <td>${d.entry_date}</td>
     <td>${d.weight_kg ?? '—'}</td>
     <td>${d.body_fat_pct ?? '—'}</td>
     <td>${d.muscle_pct ?? '—'}</td>
+    <td>${d.body_water_pct ?? '—'}</td>
     <td>${d.bp_systolic && d.bp_diastolic ? `${d.bp_systolic}/${d.bp_diastolic}` : '—'}</td>
     <td>${d.pulse ?? '—'}</td>
     <td class="note">${escapeHtml(d.note)}</td>
@@ -731,14 +736,19 @@ function renderLog() {
   });
 }
 
+function pctToKg(pct, weight) {
+  return (pct != null && weight) ? Math.round(pct / 100 * weight * 10) / 10 : '';
+}
+
 function startEditEntry(entryDate) {
   const row = data.find(d => d.entry_date === entryDate);
   if (!row) return;
   const form = document.getElementById('entryForm');
   form.entry_date.value = row.entry_date;
   form.weight_kg.value = row.weight_kg ?? '';
-  form.body_fat_pct.value = row.body_fat_pct ?? '';
-  form.muscle_kg.value = (row.muscle_pct != null && row.weight_kg) ? Math.round(row.muscle_pct / 100 * row.weight_kg * 10) / 10 : '';
+  form.fat_kg.value = pctToKg(row.body_fat_pct, row.weight_kg);
+  form.muscle_kg.value = pctToKg(row.muscle_pct, row.weight_kg);
+  form.water_kg.value = pctToKg(row.body_water_pct, row.weight_kg);
   form.bp_systolic.value = row.bp_systolic ?? '';
   form.bp_diastolic.value = row.bp_diastolic ?? '';
   form.pulse.value = row.pulse ?? '';
@@ -829,22 +839,30 @@ document.getElementById('entryForm').addEventListener('submit', async (e) => {
   const statusEl = document.getElementById('formStatus');
   const saveBtn = document.getElementById('entrySaveBtn');
 
-  // Muskel wird in kg eingegeben (so gibt's Samsung Health auch aus), intern
-  // aber als % vom Körpergewicht gespeichert -- gleiche Einheit wie bei Health
-  // Sync und in Charts/Vitals-Karte. Braucht dafür ein Gewicht: entweder aus
-  // demselben Formular, sonst den letzten bekannten Wert für diesen Tag.
-  const muscleKg = payload.muscle_kg;
-  delete payload.muscle_kg;
-  let muscleWarning = '';
-  if (muscleKg != null) {
-    const existing = data.find(d => d.entry_date === payload.entry_date);
-    const weightForConversion = payload.weight_kg ?? existing?.weight_kg ?? null;
+  // Fettmasse/Muskel/Körperwasser werden in kg eingegeben (so zeigt Samsung
+  // Health sie auch an), intern aber als % vom Körpergewicht gespeichert --
+  // gleiche Einheit wie bei Health Sync und in Charts/Vitals-Karte. Braucht
+  // dafür ein Gewicht: entweder aus demselben Formular, sonst den letzten
+  // bekannten Wert für diesen Tag.
+  const KG_FIELDS = [
+    { kgField: 'fat_kg', pctField: 'body_fat_pct', label: 'Fettmasse' },
+    { kgField: 'muscle_kg', pctField: 'muscle_pct', label: 'Muskel' },
+    { kgField: 'water_kg', pctField: 'body_water_pct', label: 'Körperwasser' },
+  ];
+  const existing = data.find(d => d.entry_date === payload.entry_date);
+  const weightForConversion = payload.weight_kg ?? existing?.weight_kg ?? null;
+  const skipped = [];
+  for (const { kgField, pctField, label } of KG_FIELDS) {
+    const kgValue = payload[kgField];
+    delete payload[kgField];
+    if (kgValue == null) continue;
     if (weightForConversion) {
-      payload.muscle_pct = Math.round((muscleKg / weightForConversion) * 1000) / 10;
+      payload[pctField] = Math.round((kgValue / weightForConversion) * 1000) / 10;
     } else {
-      muscleWarning = ' (Muskel ohne Gewicht für diesen Tag nicht gespeichert)';
+      skipped.push(label);
     }
   }
+  const kgWarning = skipped.length ? ` (${skipped.join(', ')} ohne Gewicht für diesen Tag nicht gespeichert)` : '';
 
   statusEl.textContent = 'speichert…';
   saveBtn.disabled = true;
@@ -854,8 +872,8 @@ document.getElementById('entryForm').addEventListener('submit', async (e) => {
     body: JSON.stringify(payload),
   });
   saveBtn.disabled = false;
-  statusEl.textContent = (res.ok ? 'gespeichert.' : 'Fehler beim Speichern.') + muscleWarning;
-  setTimeout(() => statusEl.textContent = '', muscleWarning ? 4000 : 2000);
+  statusEl.textContent = (res.ok ? 'gespeichert.' : 'Fehler beim Speichern.') + kgWarning;
+  setTimeout(() => statusEl.textContent = '', kgWarning ? 4000 : 2000);
   resetEntryForm();
   loadData();
 });

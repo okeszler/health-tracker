@@ -26,6 +26,10 @@ Cloudflare Pages + D1, gleiches Muster wie die anderen Cloudflare-Apps
 - `migration_login_attempts.sql` — Tabelle fürs Rate-Limiting beim Login (Brute-Force-Schutz)
 - `migration_weight_composition.sql` — Körperfett-/Skelettmuskelanteil aus der
   Health-Sync-Gewicht-CSV zusätzlich zum Gewicht erfassen
+- `migration_weight_water.sql` — Körperwasser (kg -> %) ebenfalls aus der
+  Health-Sync-Gewicht-CSV erfassen; Fettmasse/Muskel/Körperwasser lassen sich
+  jetzt auch manuell in kg eintragen (wie in Samsung Health angezeigt) und
+  werden automatisch in % umgerechnet
 - `wrangler.toml`, `package.json` — Konfiguration
 
 ## Passwortschutz

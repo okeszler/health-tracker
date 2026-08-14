@@ -97,7 +97,8 @@ export async function onRequestGet({ env }) {
          (SELECT weight_kg FROM sync_weight_readings sw3
           WHERE sw3.entry_date = sw.entry_date ORDER BY reading_time DESC LIMIT 1) AS weight_kg,
          MAX(body_fat_pct) AS body_fat_pct,
-         MAX(muscle_pct) AS muscle_pct
+         MAX(muscle_pct) AS muscle_pct,
+         MAX(body_water_pct) AS body_water_pct
        FROM sync_weight_readings sw
        GROUP BY sw.entry_date
        ORDER BY sw.entry_date DESC`

@@ -227,14 +227,20 @@ async function importAktivitaeten(env, rows) {
 }
 
 // Samsung Health exportiert in der Gewicht-CSV neben dem Gewicht auch
-// Körperfettanteil (schon Prozent) und Skelettmuskelmasse -- die aber in KG,
-// nicht Prozent. Für unser einheitliches "Muskel (%)"-Feld wird sie hier auf
-// den Körperfett-Anteil des Gewichts umgerechnet (Skelettmuskelmasse / Gewicht
-// * 100). Die Waage des Nutzers liefert (noch) nicht immer alle Werte, Samsung
-// Health trägt dafür 0.0 als Platzhalter ein -- das wird als "nicht gemessen"
-// (null) behandelt statt als echter 0%-Wert.
+// Körperfettanteil (schon Prozent), Skelettmuskelmasse und Gesamtkörperwasser
+// -- die beiden letzteren aber in KG, nicht Prozent (Samsung Health zeigt sie
+// auch in der eigenen App als kg an). Fürs einheitliche "%"-Format in Chart und
+// Vitals-Karte wird hier auf den Anteil am Körpergewicht umgerechnet (kg /
+// Gewicht * 100). Die Waage des Nutzers liefert (noch) nicht immer alle Werte,
+// Samsung Health trägt dafür 0.0 als Platzhalter ein -- das wird als "nicht
+// gemessen" (null) behandelt statt als echter 0%-Wert.
 function nonZero(v) {
   return v === null || v === 0 ? null : v;
+}
+
+function kgToPct(kg, weight) {
+  const v = nonZero(kg);
+  return v != null ? Math.round((v / weight) * 1000) / 10 : null;
 }
 
 async function importGewicht(env, rows) {
@@ -243,20 +249,20 @@ async function importGewicht(env, rows) {
     const { date, time } = splitHealthSyncTimestamp(r["Datum"]);
     const weight = toFloat(r["Gewicht"] ?? r["Weight"]);
     if (!date || weight === null) continue;
-    const muscleKg = nonZero(toFloat(r["Skelettmuskelmasse"]));
     parsed.push({
       _date: date,
       time,
       weight,
       bodyFat: nonZero(toFloat(r["Körperfettanteil"])),
-      muscle: muscleKg != null ? Math.round((muscleKg / weight) * 1000) / 10 : null,
+      muscle: kgToPct(toFloat(r["Skelettmuskelmasse"]), weight),
+      water: kgToPct(toFloat(r["Gesamtkörperwasser"]), weight),
     });
   }
   await replaceByDate(env, "sync_weight_readings", "entry_date", parsed);
   const stmt = env.DB.prepare(
-    `INSERT OR IGNORE INTO sync_weight_readings (entry_date, reading_time, weight_kg, body_fat_pct, muscle_pct) VALUES (?, ?, ?, ?, ?)`
+    `INSERT OR IGNORE INTO sync_weight_readings (entry_date, reading_time, weight_kg, body_fat_pct, muscle_pct, body_water_pct) VALUES (?, ?, ?, ?, ?, ?)`
   );
-  const batch = parsed.map((p) => stmt.bind(p._date, p.time, p.weight, p.bodyFat, p.muscle));
+  const batch = parsed.map((p) => stmt.bind(p._date, p.time, p.weight, p.bodyFat, p.muscle, p.water));
   if (batch.length) await env.DB.batch(batch);
 }
 
