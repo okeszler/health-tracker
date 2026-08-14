@@ -443,7 +443,8 @@ function renderVitals() {
 // Manuelle Einträge und Health-Sync-Werte pro Tag zusammenführen -- ist beides
 // vorhanden, wird gemittelt (wie schon bei Blutdruck & Ruhepuls).
 function mergeNum(a, b) {
-  return (a != null && b != null) ? Math.round((a + b) / 2 * 10) / 10 : (a ?? b ?? null);
+  const v = (a != null && b != null) ? (a + b) / 2 : (a ?? b ?? null);
+  return v == null ? null : Math.round(v * 10) / 10;
 }
 
 // Gewicht/Körperfett/Muskel aus manuellen Einträgen und der Health-Sync-Waage
