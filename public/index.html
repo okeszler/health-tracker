@@ -203,7 +203,6 @@
       <div class="field"><label>Gewicht (kg)</label><input type="number" step="0.1" name="weight_kg"></div>
       <div class="field"><label>Körperfett (%)</label><input type="number" step="0.1" name="body_fat_pct"></div>
       <div class="field"><label>Muskel (%)</label><input type="number" step="0.1" name="muscle_pct"></div>
-      <div class="field"><label>Körperwasser (%)</label><input type="number" step="0.1" name="body_water_pct"></div>
       <div class="field"><label>RR systolisch</label><input type="number" name="bp_systolic"></div>
       <div class="field"><label>RR diastolisch</label><input type="number" name="bp_diastolic"></div>
       <div class="field"><label>Puls</label><input type="number" name="pulse"></div>
@@ -405,16 +404,18 @@ document.getElementById('labSelect').addEventListener('change', (e) => {
 function renderVitals() {
   const latest = data[0];
   const prev = data[1];
+  const merged = buildMergedWeightSeries();
+  const mLatest = merged[0];
+  const mPrev = merged[1];
   const el = document.getElementById('vitals');
-  if (!latest) { el.innerHTML = '<div class="empty" style="padding:16px">Noch keine Einträge — leg unten los.</div>'; return; }
+  if (!latest && !mLatest) { el.innerHTML = '<div class="empty" style="padding:16px">Noch keine Einträge — leg unten los.</div>'; return; }
 
   const rows = [
-    { label: 'Gewicht', v: latest.weight_kg, unit: 'kg', pv: prev?.weight_kg, lowerBetter: true, goal: goals.weight_kg },
-    { label: 'Körperfett', v: latest.body_fat_pct, unit: '%', pv: prev?.body_fat_pct, lowerBetter: true, goal: goals.body_fat_pct },
-    { label: 'Muskel', v: latest.muscle_pct, unit: '%', pv: prev?.muscle_pct, lowerBetter: false },
-    { label: 'Körperwasser', v: latest.body_water_pct, unit: '%', pv: prev?.body_water_pct, lowerBetter: false },
-    { label: 'Blutdruck', v: latest.bp_systolic && latest.bp_diastolic ? `${latest.bp_systolic}/${latest.bp_diastolic}` : null, unit: 'mmHg' },
-    { label: 'Puls', v: latest.pulse, unit: 'bpm' },
+    { label: 'Gewicht', v: mLatest?.weight_kg, unit: 'kg', pv: mPrev?.weight_kg, lowerBetter: true, goal: goals.weight_kg },
+    { label: 'Körperfett', v: mLatest?.body_fat_pct, unit: '%', pv: mPrev?.body_fat_pct, lowerBetter: true, goal: goals.body_fat_pct },
+    { label: 'Muskel', v: mLatest?.muscle_pct, unit: '%', pv: mPrev?.muscle_pct, lowerBetter: false },
+    { label: 'Blutdruck', v: latest?.bp_systolic && latest?.bp_diastolic ? `${latest.bp_systolic}/${latest.bp_diastolic}` : null, unit: 'mmHg' },
+    { label: 'Puls', v: latest?.pulse, unit: 'bpm' },
   ];
 
   el.innerHTML = rows.map(r => {
@@ -439,10 +440,33 @@ function renderVitals() {
   }).join('');
 }
 
+// Manuelle Einträge und Health-Sync-Werte pro Tag zusammenführen -- ist beides
+// vorhanden, wird gemittelt (wie schon bei Blutdruck & Ruhepuls).
+function mergeNum(a, b) {
+  return (a != null && b != null) ? Math.round((a + b) / 2 * 10) / 10 : (a ?? b ?? null);
+}
+
+// Gewicht/Körperfett/Muskel aus manuellen Einträgen und der Health-Sync-Waage
+// (sync_weight_readings) zu einer Tagesreihe zusammenführen, neueste zuerst.
+function buildMergedWeightSeries() {
+  const manualByDate = {};
+  for (const d of data) manualByDate[d.entry_date] = d;
+  const syncByDate = {};
+  for (const w of (syncData.weight || [])) syncByDate[w.entry_date] = w;
+
+  const dates = [...new Set([...Object.keys(manualByDate), ...Object.keys(syncByDate)])].sort().reverse();
+  return dates.map(entry_date => ({
+    entry_date,
+    weight_kg: mergeNum(manualByDate[entry_date]?.weight_kg, syncByDate[entry_date]?.weight_kg),
+    body_fat_pct: mergeNum(manualByDate[entry_date]?.body_fat_pct, syncByDate[entry_date]?.body_fat_pct),
+    muscle_pct: mergeNum(manualByDate[entry_date]?.muscle_pct, syncByDate[entry_date]?.muscle_pct),
+  }));
+}
+
 function buildChart(id, values, opts = {}) {
   const ctx = document.getElementById(id);
   if (charts[id]) charts[id].destroy();
-  const asc = [...data].reverse();
+  const asc = [...(opts.source || data)].reverse();
   const datasets = values.map(v => ({
     label: v.label,
     data: asc.map(d => d[v.key]),
@@ -481,13 +505,13 @@ function buildChart(id, values, opts = {}) {
 }
 
 function renderCharts() {
-  if (!data.length) return;
-  buildChart('chartWeight', [{ key: 'weight_kg', label: 'kg', color: '#EB8A3E', fill: true }], { goalValue: goals.weight_kg });
+  const merged = buildMergedWeightSeries();
+  if (!merged.length) return;
+  buildChart('chartWeight', [{ key: 'weight_kg', label: 'kg', color: '#EB8A3E', fill: true }], { source: merged, goalValue: goals.weight_kg });
   buildChart('chartComp', [
     { key: 'body_fat_pct', label: 'Fett %', color: '#D24136' },
     { key: 'muscle_pct', label: 'Muskel %', color: '#EB8A3E' },
-    { key: 'body_water_pct', label: 'Wasser %', color: '#4A7A6D' },
-  ]);
+  ], { source: merged });
 }
 
 // Blutdruck & Puls kommen aus zwei Quellen (manuelle Einträge + Health Sync),
@@ -679,14 +703,13 @@ function renderLog() {
   const wrap = document.getElementById('logWrap');
   if (!data.length) { wrap.innerHTML = '<div class="empty">Noch keine Einträge.</div>'; return; }
   wrap.innerHTML = `<table class="log"><thead><tr>
-    <th>Datum</th><th>Gewicht</th><th>Fett %</th><th>Muskel %</th><th>Wasser %</th><th>RR</th><th>Puls</th><th>Notiz</th><th></th>
+    <th>Datum</th><th>Gewicht</th><th>Fett %</th><th>Muskel %</th><th>RR</th><th>Puls</th><th>Notiz</th><th></th>
   </tr></thead><tbody>
   ${data.map(d => `<tr>
     <td>${d.entry_date}</td>
     <td>${d.weight_kg ?? '—'}</td>
     <td>${d.body_fat_pct ?? '—'}</td>
     <td>${d.muscle_pct ?? '—'}</td>
-    <td>${d.body_water_pct ?? '—'}</td>
     <td>${d.bp_systolic && d.bp_diastolic ? `${d.bp_systolic}/${d.bp_diastolic}` : '—'}</td>
     <td>${d.pulse ?? '—'}</td>
     <td class="note">${escapeHtml(d.note)}</td>
@@ -715,7 +738,6 @@ function startEditEntry(entryDate) {
   form.weight_kg.value = row.weight_kg ?? '';
   form.body_fat_pct.value = row.body_fat_pct ?? '';
   form.muscle_pct.value = row.muscle_pct ?? '';
-  form.body_water_pct.value = row.body_water_pct ?? '';
   form.bp_systolic.value = row.bp_systolic ?? '';
   form.bp_diastolic.value = row.bp_diastolic ?? '';
   form.pulse.value = row.pulse ?? '';
@@ -858,7 +880,9 @@ async function loadSyncData() {
     document.getElementById('activitiesLogWrap').innerHTML = '<div class="empty">Fehler beim Laden.</div>';
     return;
   }
+  renderVitals();
   renderActivitiesLog();
+  try { renderCharts(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
   try { renderSyncCharts(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
 }
 

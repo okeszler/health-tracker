@@ -226,19 +226,34 @@ async function importAktivitaeten(env, rows) {
   if (batch.length) await env.DB.batch(batch);
 }
 
+// Samsung Health exportiert in der Gewicht-CSV neben dem Gewicht auch
+// Körperfett- und Skelettmuskelanteil -- beide schon als Prozentwert, keine
+// kg->%-Umrechnung nötig. Die Waage des Nutzers liefert (noch) keine
+// Muskel-/Wasserwerte, Samsung Health trägt dafür 0.0 als Platzhalter ein --
+// das wird hier als "nicht gemessen" (null) behandelt statt als echter 0%-Wert.
+function nonZero(v) {
+  return v === null || v === 0 ? null : v;
+}
+
 async function importGewicht(env, rows) {
   const parsed = [];
   for (const r of rows) {
     const { date, time } = splitHealthSyncTimestamp(r["Datum"]);
     const weight = toFloat(r["Gewicht"] ?? r["Weight"]);
     if (!date || weight === null) continue;
-    parsed.push({ _date: date, time, weight });
+    parsed.push({
+      _date: date,
+      time,
+      weight,
+      bodyFat: nonZero(toFloat(r["Körperfettanteil"])),
+      muscle: nonZero(toFloat(r["Skelettmuskelanteil"])),
+    });
   }
   await replaceByDate(env, "sync_weight_readings", "entry_date", parsed);
   const stmt = env.DB.prepare(
-    `INSERT OR IGNORE INTO sync_weight_readings (entry_date, reading_time, weight_kg) VALUES (?, ?, ?)`
+    `INSERT OR IGNORE INTO sync_weight_readings (entry_date, reading_time, weight_kg, body_fat_pct, muscle_pct) VALUES (?, ?, ?, ?, ?)`
   );
-  const batch = parsed.map((p) => stmt.bind(p._date, p.time, p.weight));
+  const batch = parsed.map((p) => stmt.bind(p._date, p.time, p.weight, p.bodyFat, p.muscle));
   if (batch.length) await env.DB.batch(batch);
 }
 

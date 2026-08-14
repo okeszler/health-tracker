@@ -93,11 +93,12 @@ export async function onRequestGet({ env }) {
     ).all(),
     env.DB.prepare("SELECT * FROM sync_activities ORDER BY entry_date DESC, start_time DESC").all(),
     env.DB.prepare(
-      `SELECT sw.entry_date, sw.weight_kg
+      `SELECT sw.entry_date,
+         (SELECT weight_kg FROM sync_weight_readings sw3
+          WHERE sw3.entry_date = sw.entry_date ORDER BY reading_time DESC LIMIT 1) AS weight_kg,
+         MAX(body_fat_pct) AS body_fat_pct,
+         MAX(muscle_pct) AS muscle_pct
        FROM sync_weight_readings sw
-       WHERE sw.reading_time = (
-         SELECT MAX(reading_time) FROM sync_weight_readings sw2 WHERE sw2.entry_date = sw.entry_date
-       )
        GROUP BY sw.entry_date
        ORDER BY sw.entry_date DESC`
     ).all(),
