@@ -202,7 +202,7 @@
       <div class="field"><label>Datum</label><input type="date" name="entry_date" required></div>
       <div class="field"><label>Gewicht (kg)</label><input type="number" step="0.1" name="weight_kg"></div>
       <div class="field"><label>Körperfett (%)</label><input type="number" step="0.1" name="body_fat_pct"></div>
-      <div class="field"><label>Muskel (%)</label><input type="number" step="0.1" name="muscle_pct"></div>
+      <div class="field"><label>Muskel (kg)</label><input type="number" step="0.1" name="muscle_kg"></div>
       <div class="field"><label>RR systolisch</label><input type="number" name="bp_systolic"></div>
       <div class="field"><label>RR diastolisch</label><input type="number" name="bp_diastolic"></div>
       <div class="field"><label>Puls</label><input type="number" name="pulse"></div>
@@ -738,7 +738,7 @@ function startEditEntry(entryDate) {
   form.entry_date.value = row.entry_date;
   form.weight_kg.value = row.weight_kg ?? '';
   form.body_fat_pct.value = row.body_fat_pct ?? '';
-  form.muscle_pct.value = row.muscle_pct ?? '';
+  form.muscle_kg.value = (row.muscle_pct != null && row.weight_kg) ? Math.round(row.muscle_pct / 100 * row.weight_kg * 10) / 10 : '';
   form.bp_systolic.value = row.bp_systolic ?? '';
   form.bp_diastolic.value = row.bp_diastolic ?? '';
   form.pulse.value = row.pulse ?? '';
@@ -828,6 +828,24 @@ document.getElementById('entryForm').addEventListener('submit', async (e) => {
 
   const statusEl = document.getElementById('formStatus');
   const saveBtn = document.getElementById('entrySaveBtn');
+
+  // Muskel wird in kg eingegeben (so gibt's Samsung Health auch aus), intern
+  // aber als % vom Körpergewicht gespeichert -- gleiche Einheit wie bei Health
+  // Sync und in Charts/Vitals-Karte. Braucht dafür ein Gewicht: entweder aus
+  // demselben Formular, sonst den letzten bekannten Wert für diesen Tag.
+  const muscleKg = payload.muscle_kg;
+  delete payload.muscle_kg;
+  let muscleWarning = '';
+  if (muscleKg != null) {
+    const existing = data.find(d => d.entry_date === payload.entry_date);
+    const weightForConversion = payload.weight_kg ?? existing?.weight_kg ?? null;
+    if (weightForConversion) {
+      payload.muscle_pct = Math.round((muscleKg / weightForConversion) * 1000) / 10;
+    } else {
+      muscleWarning = ' (Muskel ohne Gewicht für diesen Tag nicht gespeichert)';
+    }
+  }
+
   statusEl.textContent = 'speichert…';
   saveBtn.disabled = true;
   const res = await fetch('/api/metrics', {
@@ -836,8 +854,8 @@ document.getElementById('entryForm').addEventListener('submit', async (e) => {
     body: JSON.stringify(payload),
   });
   saveBtn.disabled = false;
-  statusEl.textContent = res.ok ? 'gespeichert.' : 'Fehler beim Speichern.';
-  setTimeout(() => statusEl.textContent = '', 2000);
+  statusEl.textContent = (res.ok ? 'gespeichert.' : 'Fehler beim Speichern.') + muscleWarning;
+  setTimeout(() => statusEl.textContent = '', muscleWarning ? 4000 : 2000);
   resetEntryForm();
   loadData();
 });
