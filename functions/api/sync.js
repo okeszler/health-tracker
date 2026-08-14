@@ -227,10 +227,12 @@ async function importAktivitaeten(env, rows) {
 }
 
 // Samsung Health exportiert in der Gewicht-CSV neben dem Gewicht auch
-// Körperfett- und Skelettmuskelanteil -- beide schon als Prozentwert, keine
-// kg->%-Umrechnung nötig. Die Waage des Nutzers liefert (noch) keine
-// Muskel-/Wasserwerte, Samsung Health trägt dafür 0.0 als Platzhalter ein --
-// das wird hier als "nicht gemessen" (null) behandelt statt als echter 0%-Wert.
+// Körperfettanteil (schon Prozent) und Skelettmuskelmasse -- die aber in KG,
+// nicht Prozent. Für unser einheitliches "Muskel (%)"-Feld wird sie hier auf
+// den Körperfett-Anteil des Gewichts umgerechnet (Skelettmuskelmasse / Gewicht
+// * 100). Die Waage des Nutzers liefert (noch) nicht immer alle Werte, Samsung
+// Health trägt dafür 0.0 als Platzhalter ein -- das wird als "nicht gemessen"
+// (null) behandelt statt als echter 0%-Wert.
 function nonZero(v) {
   return v === null || v === 0 ? null : v;
 }
@@ -241,12 +243,13 @@ async function importGewicht(env, rows) {
     const { date, time } = splitHealthSyncTimestamp(r["Datum"]);
     const weight = toFloat(r["Gewicht"] ?? r["Weight"]);
     if (!date || weight === null) continue;
+    const muscleKg = nonZero(toFloat(r["Skelettmuskelmasse"]));
     parsed.push({
       _date: date,
       time,
       weight,
       bodyFat: nonZero(toFloat(r["Körperfettanteil"])),
-      muscle: nonZero(toFloat(r["Skelettmuskelanteil"])),
+      muscle: muscleKg != null ? Math.round((muscleKg / weight) * 1000) / 10 : null,
     });
   }
   await replaceByDate(env, "sync_weight_readings", "entry_date", parsed);
