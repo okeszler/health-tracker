@@ -127,6 +127,17 @@
   @media (max-width: 640px) { .charts { grid-template-columns: 1fr; } }
   .chart-card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
   .chart-card h3 { font-size: 12px; color: var(--text-dim); margin: 0 0 10px; font-family: 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; }
+  /* Schlaf-Zeitstrahl: reines HTML/CSS statt Chart.js (siehe renderSleepChart) */
+  .sleep-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; font-size: 11px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; }
+  .sleep-legend-item { display: flex; align-items: center; gap: 5px; }
+  .sleep-legend-dot { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+  .sleep-axis { position: relative; height: 16px; margin-bottom: 4px; margin-left: 92px; }
+  .sleep-axis-tick { position: absolute; transform: translateX(-50%); font-size: 10px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; white-space: nowrap; }
+  .sleep-rows { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+  .sleep-row { display: flex; align-items: center; gap: 8px; }
+  .sleep-row-label { width: 84px; flex-shrink: 0; font-size: 10px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; white-space: nowrap; }
+  .sleep-track { position: relative; flex: 1; height: 14px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
+  .sleep-seg { position: absolute; top: 0; bottom: 0; }
 
   table.log { width: 100%; border-collapse: collapse; font-family: 'IBM Plex Mono', monospace; font-size: 13px; }
   table.log th, table.log td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
@@ -240,7 +251,7 @@
     </div>
     <div class="charts">
       <div class="chart-card"><h3>Schritte</h3><canvas id="chartSteps" height="140"></canvas></div>
-      <div class="chart-card"><h3>Schlaf</h3><canvas id="chartSleep" height="140"></canvas></div>
+      <div class="chart-card"><h3>Schlaf</h3><div id="chartSleep"></div></div>
     </div>
   </section>
 
@@ -955,16 +966,21 @@ function renderStepsChart() {
 // serverseitig in functions/api/sync-data.js -- syncData.nights kommt fertig
 // gruppiert an, damit es diese Logik nicht doppelt (und potenziell inkonsistent)
 // im Frontend gibt.
+//
+// Diese Grafik ist reines HTML/CSS statt Chart.js: Chart.js 4.5 (CDN-Build)
+// berechnet bei Floating-Bars auf einer Kategorie-Achse (unser Fall: eine
+// Zeile pro Nacht, Balken-Länge = Zeitspanne) durchgängig width/height = null
+// für jedes Balken-Element -- die Grafik bleibt dadurch komplett leer, ganz
+// ohne Fehlermeldung. Mit eigenem Markup haben wir volle Kontrolle und
+// umgehen den Bug.
 const SLEEP_STAGE_COLORS = { deep: '#785A46', light: '#EB8A3E', rem: '#4A7A6D', awake: '#EBB582', other: '#B79A80' };
 const SLEEP_STAGE_LABELS = { deep: 'Tief', light: 'Leicht', rem: 'REM', awake: 'Wach', other: 'Sonstiges' };
 const SLEEP_X_REFERENCE_HOUR = 18; // Achse beginnt bei 18 Uhr des Bettgeh-Tages, damit alle Nächte an der Uhrzeit ausgerichtet sind
 
 function renderSleepChart() {
-  const ctx = document.getElementById('chartSleep');
-  if (charts.chartSleep) charts.chartSleep.destroy();
-
+  const wrap = document.getElementById('chartSleep');
   const nights = syncData.nights || [];
-  if (!nights.length) return;
+  if (!nights.length) { wrap.innerHTML = '<div class="empty">Noch keine Schlafdaten synchronisiert.</div>'; return; }
 
   const fmtTime = (ms) => new Date(ms).toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' });
   const fmtDate = (ms) => new Date(ms).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' });
@@ -977,70 +993,41 @@ function renderSleepChart() {
     return (ms - ref) / 3600000;
   };
 
-  const points = [];
-  for (const night of nights) {
-    const rowLabel = `${fmtDate(night.bedtime)} ${fmtTime(night.bedtime)}`;
-    for (const seg of night.segments) {
+  const rows = nights.map(night => {
+    const segs = night.segments.map(seg => {
       const stage = ['deep', 'light', 'rem', 'awake'].includes(seg.stage) ? seg.stage : 'other';
-      points.push({
-        x: [toXHours(night, seg.start), toXHours(night, seg.end)],
-        y: rowLabel,
-        stage,
-        segStart: seg.start,
-        segEnd: seg.end,
-      });
-    }
+      return { start: toXHours(night, seg.start), end: toXHours(night, seg.end), stage, segStart: seg.start, segEnd: seg.end };
+    });
+    return { label: `${fmtDate(night.bedtime)} ${fmtTime(night.bedtime)}`, segs };
+  });
+
+  const allX = rows.flatMap(r => r.segs.flatMap(s => [s.start, s.end]));
+  const domainMin = Math.floor(Math.min(...allX));
+  const domainMax = Math.ceil(Math.max(...allX));
+  const domainSpan = Math.max(domainMax - domainMin, 1);
+  const pct = (v) => ((v - domainMin) / domainSpan) * 100;
+
+  const hourTicks = [];
+  for (let h = Math.ceil(domainMin / 2) * 2; h <= domainMax; h += 2) {
+    const clock = Math.round(((SLEEP_X_REFERENCE_HOUR + h) % 24 + 24) % 24);
+    hourTicks.push({ x: h, label: `${String(clock).padStart(2, '0')}:00` });
   }
 
-  charts.chartSleep = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: nights.map(n => `${fmtDate(n.bedtime)} ${fmtTime(n.bedtime)}`),
-      datasets: [{
-        label: 'Schlafphasen',
-        data: points,
-        backgroundColor: (c) => SLEEP_STAGE_COLORS[c.raw?.stage] || SLEEP_STAGE_COLORS.other,
-        barThickness: 16,
-      }]
-    },
-    options: {
-      indexAxis: 'y',
-      responsive: true,
-      parsing: false,
-      plugins: {
-        legend: {
-          labels: {
-            color: axisColor(),
-            font: { family: 'IBM Plex Mono', size: 10 },
-            generateLabels: () => Object.keys(SLEEP_STAGE_LABELS).map(key => ({
-              text: SLEEP_STAGE_LABELS[key],
-              fillStyle: SLEEP_STAGE_COLORS[key],
-              strokeStyle: SLEEP_STAGE_COLORS[key],
-            })),
-          }
-        },
-        tooltip: {
-          callbacks: {
-            title: (items) => SLEEP_STAGE_LABELS[items[0].raw.stage] || items[0].raw.stage,
-            label: (item) => `${fmtTime(item.raw.segStart)} – ${fmtTime(item.raw.segEnd)}`,
-          }
-        }
-      },
-      scales: {
-        x: {
-          ticks: {
-            color: axisColor(), font: { size: 10 },
-            callback: (val) => {
-              const h = Math.round(((SLEEP_X_REFERENCE_HOUR + val) % 24 + 24) % 24);
-              return `${String(h).padStart(2, '0')}:00`;
-            }
-          },
-          grid: { color: gridColor() },
-        },
-        y: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } }
-      }
-    }
-  });
+  const legendHtml = Object.keys(SLEEP_STAGE_LABELS).map(key =>
+    `<span class="sleep-legend-item"><span class="sleep-legend-dot" style="background:${SLEEP_STAGE_COLORS[key]}"></span>${SLEEP_STAGE_LABELS[key]}</span>`
+  ).join('');
+
+  const axisHtml = `<div class="sleep-axis">${hourTicks.map(t => `<span class="sleep-axis-tick" style="left:${pct(t.x)}%">${t.label}</span>`).join('')}</div>`;
+
+  const rowsHtml = rows.map(r => `
+    <div class="sleep-row">
+      <div class="sleep-row-label">${escapeHtml(r.label)}</div>
+      <div class="sleep-track">
+        ${r.segs.map(s => `<div class="sleep-seg" style="left:${pct(s.start)}%; width:${Math.max(pct(s.end) - pct(s.start), 0.3)}%; background:${SLEEP_STAGE_COLORS[s.stage]}" title="${SLEEP_STAGE_LABELS[s.stage]}: ${fmtTime(s.segStart)} – ${fmtTime(s.segEnd)}"></div>`).join('')}
+      </div>
+    </div>`).join('');
+
+  wrap.innerHTML = `<div class="sleep-legend">${legendHtml}</div>${axisHtml}<div class="sleep-rows">${rowsHtml}</div>`;
 }
 
 function renderActivitiesLog() {
