@@ -154,6 +154,17 @@
     padding: 6px 10px; font-family: 'IBM Plex Mono', monospace; font-size: 12px;
   }
 
+  .lab-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .lab-chip {
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; color: var(--text-dim);
+    padding: 4px 10px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; cursor: pointer;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .lab-chip:hover { border-color: var(--honey); }
+  .lab-chip.active { background: var(--chip-color, var(--honey)); border-color: var(--chip-color, var(--honey)); color: #1a1206; font-weight: 600; }
+  .lab-chip .lab-chip-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--chip-color, var(--text-dim)); flex-shrink: 0; }
+  .lab-chip.active .lab-chip-dot { background: #1a1206; }
+
   .sync-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
   button.sync {
     background: var(--surface); border: 1px solid var(--line); color: var(--text); border-radius: 6px;
@@ -231,12 +242,10 @@
       <div class="chart-card"><h3>Gewicht</h3><canvas id="chartWeight" height="140"></canvas></div>
       <div class="chart-card"><h3>Körperzusammensetzung</h3><canvas id="chartComp" height="140"></canvas></div>
       <div class="chart-card"><h3>Blutdruck & Ruhepuls <span style="font-weight:400; text-transform:none;">(manuell + Health Sync)</span></h3><canvas id="chartBP" height="140"></canvas></div>
-      <div class="chart-card">
-        <h3 style="display:flex; justify-content:space-between; align-items:center;">
-          Blutwerte
-          <select class="lab-select" id="labSelect"></select>
-        </h3>
-        <canvas id="chartLab" height="140"></canvas>
+      <div class="chart-card" style="grid-column: 1 / -1;">
+        <h3>Blutwerte im Zeitverlauf</h3>
+        <div class="lab-picker" id="labPicker"></div>
+        <canvas id="chartLab" height="110"></canvas>
       </div>
       <div class="chart-card"><h3>Blutfette</h3><canvas id="chartLipids" height="140"></canvas></div>
       <div class="chart-card"><h3>Schilddrüse</h3><canvas id="chartThyroid" height="140"></canvas></div>
@@ -337,7 +346,12 @@ let goals = {};
 let data = [];
 let labs = [];
 let charts = {};
-let selectedLabTest = null;
+let selectedLabTests = new Set();
+const LAB_CHART_COLORS = ['#D24136', '#EB8A3E', '#4A7A6D', '#785A46', '#A9762E', '#9C5A7A', '#5A7A9C', '#6D9C5A'];
+function labColor(testName, allTestNames) {
+  const idx = allTestNames.indexOf(testName);
+  return LAB_CHART_COLORS[idx % LAB_CHART_COLORS.length];
+}
 
 async function loadGoals() {
   try {
@@ -393,25 +407,32 @@ async function loadLabs() {
   const datalist = document.getElementById('testNames');
   datalist.innerHTML = testNames.map(n => `<option value="${escapeHtml(n)}">`).join('');
 
-  const select = document.getElementById('labSelect');
-  const prevSelection = selectedLabTest;
-  select.innerHTML = testNames.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
-  if (testNames.length) {
-    selectedLabTest = testNames.includes(prevSelection) ? prevSelection : testNames[0];
-    select.value = selectedLabTest;
-  } else {
-    selectedLabTest = null;
-  }
+  // nicht mehr existierende Tests aus der Auswahl entfernen; erste Auswahl
+  // vorbelegen, falls der Nutzer noch nichts gewählt hat
+  selectedLabTests = new Set([...selectedLabTests].filter(t => testNames.includes(t)));
+  if (!selectedLabTests.size && testNames.length) selectedLabTests.add(testNames[0]);
+
+  const picker = document.getElementById('labPicker');
+  picker.innerHTML = testNames.map(n => {
+    const active = selectedLabTests.has(n);
+    const color = labColor(n, testNames);
+    return `<button type="button" class="lab-chip${active ? ' active' : ''}" style="--chip-color:${color}" data-test="${escapeHtml(n)}"><span class="lab-chip-dot"></span>${escapeHtml(n)}</button>`;
+  }).join('');
+  picker.querySelectorAll('.lab-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const t = chip.dataset.test;
+      if (selectedLabTests.has(t)) selectedLabTests.delete(t);
+      else selectedLabTests.add(t);
+      chip.classList.toggle('active');
+      try { renderLabChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
+    });
+  });
+
   renderLabLog();
   try { renderLabChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
   try { renderLipidsChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
   try { renderThyroidChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
 }
-
-document.getElementById('labSelect').addEventListener('change', (e) => {
-  selectedLabTest = e.target.value;
-  renderLabChart();
-});
 
 function renderVitals() {
   const latest = data[0];
@@ -597,25 +618,35 @@ function renderCombinedBPChart() {
 function renderLabChart() {
   const ctx = document.getElementById('chartLab');
   if (charts.chartLab) charts.chartLab.destroy();
-  if (!selectedLabTest) return;
+  if (!selectedLabTests.size) return;
 
-  const entries = labs.filter(l => l.test_name === selectedLabTest).slice().reverse();
-  const unit = entries[entries.length - 1]?.unit || '';
+  const allTestNames = [...new Set(labs.map(l => l.test_name))].sort();
+  const selected = allTestNames.filter(t => selectedLabTests.has(t));
+
+  // gemeinsame Zeitachse über alle ausgewählten Tests -- unterschiedliche
+  // Tests haben unterschiedliche Messtage, spanGaps überbrückt die Lücken
+  const dates = [...new Set(labs.filter(l => selectedLabTests.has(l.test_name)).map(l => l.entry_date))].sort();
+
+  const datasets = selected.map(testName => {
+    const byDate = {};
+    let unit = '';
+    labs.filter(l => l.test_name === testName).forEach(l => { byDate[l.entry_date] = l.value; unit = l.unit || unit; });
+    const color = labColor(testName, allTestNames);
+    return {
+      label: unit ? `${testName} (${unit})` : testName,
+      data: dates.map(d => byDate[d] ?? null),
+      borderColor: color,
+      backgroundColor: color + '33',
+      spanGaps: true,
+      tension: 0.3,
+      pointRadius: 3,
+      fill: false,
+    };
+  });
 
   charts.chartLab = new Chart(ctx, {
     type: 'line',
-    data: {
-      labels: entries.map(e => e.entry_date),
-      datasets: [{
-        label: unit ? `${selectedLabTest} (${unit})` : selectedLabTest,
-        data: entries.map(e => e.value),
-        borderColor: '#785A46',
-        backgroundColor: '#785A4633',
-        tension: 0.3,
-        pointRadius: 3,
-        fill: true,
-      }]
-    },
+    data: { labels: dates, datasets },
     options: {
       responsive: true,
       plugins: { legend: { labels: { color: axisColor(), font: { family: 'IBM Plex Mono', size: 10 } } } },
