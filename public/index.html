@@ -258,7 +258,6 @@
         <canvas id="chartLab" height="110"></canvas>
       </div>
       <div class="chart-card"><h3>Blutfette</h3><canvas id="chartLipids" height="140"></canvas></div>
-      <div class="chart-card"><h3>Schilddrüse</h3><canvas id="chartThyroid" height="140"></canvas></div>
     </div>
   </section>
 
@@ -296,22 +295,24 @@
   </section>
 
   <section>
-    <details open>
+    <details>
       <summary class="log-summary">Log — Vitals</summary>
       <div id="logWrap"><div class="empty">Lädt…</div></div>
     </details>
   </section>
 
   <section>
-    <details open>
+    <details>
       <summary class="log-summary">Log — Blutwerte</summary>
       <div id="labLogWrap"><div class="empty">Lädt…</div></div>
     </details>
   </section>
 
   <section>
-    <h2>Log — Aktivitäten</h2>
-    <div id="activitiesLogWrap"><div class="empty">Lädt…</div></div>
+    <details>
+      <summary class="log-summary">Log — Aktivitäten</summary>
+      <div id="activitiesLogWrap"><div class="empty">Lädt…</div></div>
+    </details>
   </section>
 </div>
 
@@ -336,7 +337,6 @@ function renderAllCharts() {
   try { renderCharts(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
   try { renderLabChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
   try { renderLipidsChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
-  try { renderThyroidChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
   try { renderSyncCharts(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
 }
 
@@ -445,7 +445,6 @@ async function loadLabs() {
   renderLabLog();
   try { renderLabChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
   try { renderLipidsChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
-  try { renderThyroidChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
 }
 
 function renderVitals() {
@@ -706,55 +705,6 @@ function renderLipidsChart() {
       scales: {
         x: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
         y: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } }
-      }
-    }
-  });
-}
-
-// TSH/T3/T4 liegen im niedrigen Bereich, die Antikörper (TPO-AK/TG-AK) oft im
-// dreistelligen Bereich — deshalb zwei y-Achsen, damit beide sichtbar bleiben.
-const THYROID_TESTS = ['TSH basal', 'freies T3', 'freies T4', 'TPO-AK', 'TG-AK'];
-const THYROID_COLORS = { 'TSH basal': '#D24136', 'freies T3': '#EB8A3E', 'freies T4': '#4A7A6D', 'TPO-AK': '#785A46', 'TG-AK': '#A9762E' };
-const THYROID_AXIS = { 'TSH basal': 'y', 'freies T3': 'y', 'freies T4': 'y', 'TPO-AK': 'y1', 'TG-AK': 'y1' };
-
-function renderThyroidChart() {
-  const ctx = document.getElementById('chartThyroid');
-  if (charts.chartThyroid) charts.chartThyroid.destroy();
-
-  const relevant = labs.filter(l => THYROID_TESTS.includes(l.test_name));
-  const dates = [...new Set(relevant.map(l => l.entry_date))].sort();
-  if (!dates.length) return;
-
-  const datasets = THYROID_TESTS.map(name => {
-    const byDate = {};
-    relevant.filter(l => l.test_name === name).forEach(l => { byDate[l.entry_date] = l.value; });
-    return {
-      label: name,
-      data: dates.map(d => byDate[d] ?? null),
-      borderColor: THYROID_COLORS[name],
-      backgroundColor: THYROID_COLORS[name] + '33',
-      yAxisID: THYROID_AXIS[name],
-      spanGaps: true,
-      tension: 0.3,
-      pointRadius: 3,
-    };
-  }).filter(ds => ds.data.some(v => v != null));
-
-  const usesRightAxis = datasets.some(ds => ds.yAxisID === 'y1');
-
-  charts.chartThyroid = new Chart(ctx, {
-    type: 'line',
-    data: { labels: dates, datasets },
-    options: {
-      responsive: true,
-      plugins: { legend: { labels: { color: axisColor(), font: { family: 'IBM Plex Mono', size: 10 } } } },
-      scales: {
-        x: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
-        y: { type: 'linear', position: 'left', ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
-        y1: {
-          type: 'linear', position: 'right', display: usesRightAxis,
-          ticks: { color: axisColor(), font: { size: 10 } }, grid: { drawOnChartArea: false }
-        }
       }
     }
   });
