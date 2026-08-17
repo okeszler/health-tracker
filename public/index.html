@@ -96,6 +96,16 @@
     display: flex; align-items: center; justify-content: space-between;
   }
 
+  summary.log-summary {
+    font-size: 13px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim);
+    font-weight: 600; margin: 0 0 12px; font-family: 'IBM Plex Mono', monospace;
+    cursor: pointer; list-style: none; display: flex; align-items: center; gap: 7px;
+  }
+  summary.log-summary::-webkit-details-marker { display: none; }
+  summary.log-summary::before { content: '▸'; display: inline-block; font-size: 10px; transition: transform 0.15s; }
+  details[open] > summary.log-summary::before { transform: rotate(90deg); }
+  summary.log-summary:hover { color: var(--text); }
+
   form.entry {
     background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px;
     display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; align-items: end;
@@ -286,13 +296,17 @@
   </section>
 
   <section>
-    <h2>Log — Vitals</h2>
-    <div id="logWrap"><div class="empty">Lädt…</div></div>
+    <details open>
+      <summary class="log-summary">Log — Vitals</summary>
+      <div id="logWrap"><div class="empty">Lädt…</div></div>
+    </details>
   </section>
 
   <section>
-    <h2>Log — Blutwerte</h2>
-    <div id="labLogWrap"><div class="empty">Lädt…</div></div>
+    <details open>
+      <summary class="log-summary">Log — Blutwerte</summary>
+      <div id="labLogWrap"><div class="empty">Lädt…</div></div>
+    </details>
   </section>
 
   <section>
