@@ -1,6 +1,6 @@
 // Passwortschutz für die gesamte App (Seiten + /api/*).
 // Aktiv, sobald der Secret APP_PASSWORD gesetzt ist:
-//   npx wrangler pages secret put APP_PASSWORD --project-name=health-tracker
+//   npx wrangler pages secret put APP_PASSWORD --project-name=oliver-health-tracker
 // Ohne gesetztes Secret bleibt die App offen (z.B. für lokale Entwicklung).
 
 const COOKIE_NAME = "ht_session";
