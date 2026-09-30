@@ -95,7 +95,7 @@ npx wrangler d1 create health-tracker
 npm run db:init
 
 # Passwort setzen (Secret)
-npx wrangler pages secret put APP_PASSWORD --project-name=health-tracker
+npx wrangler pages secret put APP_PASSWORD --project-name=oliver-health-tracker
 
 # Deployen
 npm run deploy
@@ -151,7 +151,7 @@ Drive-Zugriff:
    ```
 5. **Secret setzen** (kompletter Inhalt der heruntergeladenen JSON-Datei, eine Zeile):
    ```powershell
-   npx wrangler pages secret put GOOGLE_SERVICE_ACCOUNT_JSON --project-name=health-tracker
+   npx wrangler pages secret put GOOGLE_SERVICE_ACCOUNT_JSON --project-name=oliver-health-tracker
    ```
    Browser-Weg: Pages-Projekt → **Settings → Environment variables → Add variable** — Name
    `GOOGLE_SERVICE_ACCOUNT_JSON`, Typ **Secret**, Wert = JSON-Inhalt
