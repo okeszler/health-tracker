@@ -2,16 +2,16 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Vitals — Health Tracker</title>
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="icon" href="/icons/icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="/icons/icon-180.png">
-<meta name="theme-color" content="#D24136">
+<meta name="theme-color" content="#FAF3E9">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Vitals">
 <script>
   (function() {
@@ -39,7 +39,12 @@
     --amber: #EB8A3E;
     --teal: #4A7A6D;
     --coral: #D24136;
-    --violet: #785A46;
+    --ok: #4A7A6D;
+    --warn: #D98A1F;
+    --bad: #D24136;
+    --shadow: 0 1px 2px rgba(58,42,30,.04), 0 6px 20px rgba(58,42,30,.06);
+    --ease: cubic-bezier(.2,.8,.2,1);
+    --tabbar-h: 64px;
   }
   html[data-theme="dark"] {
     color-scheme: dark; /* native Elemente (Datumsfeld, Scrollbars) ebenfalls dunkel */
@@ -51,279 +56,521 @@
     --text-dim: #B79A80;
     --teal: #6FB89C;
     --coral: #E8564A;
+    --ok: #6FB89C;
+    --warn: #F0A646;
+    --bad: #E8564A;
+    --shadow: 0 1px 2px rgba(0,0,0,.25), 0 6px 20px rgba(0,0,0,.25);
   }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { interpolate-size: allow-keywords; }
   body {
     margin: 0;
     background: var(--ink);
     color: var(--text);
     font-family: 'IBM Plex Sans', sans-serif;
     -webkit-font-smoothing: antialiased;
+    transition: background .3s, color .3s;
   }
-  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 80px; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 16px calc(var(--tabbar-h) + 32px + env(safe-area-inset-bottom)); }
 
-  header { margin-bottom: 28px; }
-  header .eyebrow {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 12px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--teal);
+  /* ── Kopfzeile ─────────────────────────────────────────── */
+  header.topbar {
+    max-width: 980px; margin: 0 auto; padding: calc(20px + env(safe-area-inset-top)) 16px 18px;
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
   }
-  header h1 { font-size: 28px; margin: 6px 0 0; font-weight: 600; }
+  .eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--teal); }
+  header h1 { font-size: 28px; margin: 4px 0 0; font-weight: 600; }
   header .date { font-family: 'IBM Plex Mono', monospace; color: var(--text-dim); font-size: 13px; margin-top: 4px; }
-
-  .vitals {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-    gap: 1px;
-    background: var(--line);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    overflow: hidden;
-    margin-bottom: 28px;
+  #pageTitle.swap { animation: titleIn .35s var(--ease); }
+  .header-actions { display: flex; gap: 8px; position: relative; margin-top: 2px; }
+  button.icon-btn {
+    background: var(--surface); border: 1px solid var(--line); color: var(--text-dim); border-radius: 999px;
+    width: 40px; height: 40px; font-size: 16px; cursor: pointer; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; transition: border-color .15s, color .15s, transform .1s;
   }
-  .vital { background: var(--surface); padding: 16px 14px; }
+  button.icon-btn:hover { border-color: var(--honey); color: var(--honey); }
+  button.icon-btn:active { transform: scale(.92); }
+  button.icon-btn svg { width: 20px; height: 20px; }
+
+  .menu {
+    position: absolute; right: 0; top: 48px; z-index: 30; min-width: 240px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow);
+    padding: 6px; transform-origin: top right; display: none;
+  }
+  .menu.open { display: block; animation: menuIn .18s var(--ease); }
+  .menu a, .menu button {
+    display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border-radius: 8px;
+    background: none; border: none; color: var(--text); font: inherit; font-size: 14px; text-decoration: none; cursor: pointer; text-align: left;
+  }
+  .menu a:hover, .menu button:hover { background: var(--surface-2); }
+  .menu svg { width: 18px; height: 18px; color: var(--text-dim); flex-shrink: 0; }
+  .menu hr { border: none; border-top: 1px solid var(--line); margin: 6px 4px; }
+  .menu .danger { color: var(--coral); }
+  .menu .danger svg { color: var(--coral); }
+
+  /* ── Navigation: unten am Handy, oben am Desktop ───────── */
+  nav.tabbar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border-top: 1px solid var(--line);
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  }
+  nav.tabbar button {
+    background: none; border: none; cursor: pointer; color: var(--text-dim);
+    display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 0;
+    font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: .02em; position: relative;
+    transition: color .2s;
+  }
+  nav.tabbar button svg { width: 24px; height: 24px; transition: transform .25s var(--ease); }
+  nav.tabbar button .pill {
+    position: absolute; top: 2px; width: 56px; height: 32px; border-radius: 999px; background: var(--surface-2);
+    transform: scaleX(.4); opacity: 0; transition: transform .3s var(--ease), opacity .2s; z-index: -1;
+  }
+  nav.tabbar button.active { color: var(--terracotta); }
+  nav.tabbar button.active .pill { transform: scaleX(1); opacity: 1; }
+  nav.tabbar button.active svg { transform: translateY(-1px); }
+  nav.tabbar button:active svg { transform: scale(.88); }
+
+  @media (min-width: 760px) {
+    nav.tabbar {
+      position: sticky; top: 0; bottom: auto; max-width: 980px; margin: 0 auto 24px; padding: 8px 16px;
+      display: flex; gap: 6px; border-top: none; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--ink) 85%, transparent);
+    }
+    nav.tabbar button { flex-direction: row; gap: 8px; padding: 9px 16px; font-size: 13px; border-radius: 999px; }
+    nav.tabbar button svg { width: 18px; height: 18px; }
+    nav.tabbar button .pill { top: 0; left: 0; width: 100%; height: 100%; }
+    .wrap { padding-bottom: 60px; }
+  }
+
+  /* ── Seiten + Animationen ──────────────────────────────── */
+  .page { display: none; }
+  .page.active { display: block; animation: pageIn .38s var(--ease) both; }
+  .page.active.from-left { animation-name: pageInLeft; }
+  .stagger > * { animation: rise .5s var(--ease) both; animation-delay: calc(var(--i, 0) * 45ms); }
+
+  @keyframes pageIn { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: none; } }
+  @keyframes pageInLeft { from { opacity: 0; transform: translateX(-18px); } to { opacity: 1; transform: none; } }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  @keyframes titleIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @keyframes menuIn { from { opacity: 0; transform: scale(.94) translateY(-4px); } to { opacity: 1; transform: none; } }
+  @keyframes shimmer { from { background-position: -200% 0; } to { background-position: 200% 0; } }
+  @keyframes toastIn { from { opacity: 0; transform: translate(-50%, 16px) scale(.96); } to { opacity: 1; transform: translate(-50%, 0); } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  section { margin-bottom: 28px; }
+  h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim);
+    font-weight: 600; margin: 0 0 12px; font-family: 'IBM Plex Mono', monospace;
+    display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  }
+  h2 .sub { font-weight: 400; text-transform: none; letter-spacing: normal; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+
+  /* ── Übersicht ─────────────────────────────────────────── */
+  .vitals { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  @media (min-width: 640px) { .vitals { grid-template-columns: repeat(3, 1fr); } }
+  .vital { padding: 14px 14px 13px; position: relative; overflow: hidden; }
   .vital .label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; }
-  .vital .value { font-family: 'IBM Plex Mono', monospace; font-size: 24px; font-weight: 500; margin-top: 4px; color: var(--text); }
+  .vital .value { font-family: 'IBM Plex Mono', monospace; font-size: 26px; font-weight: 500; margin-top: 4px; color: var(--text); font-variant-numeric: tabular-nums; }
   .vital .value .unit { font-size: 12px; color: var(--text-dim); margin-left: 3px; }
-  .vital .delta { font-size: 11px; margin-top: 3px; font-family: 'IBM Plex Mono', monospace; }
+  .vital .meta { font-size: 11px; margin-top: 4px; font-family: 'IBM Plex Mono', monospace; color: var(--text-dim); line-height: 1.45; }
   .delta { color: var(--text-dim); }
   .delta.pos { color: var(--coral); }
   .delta.neg { color: var(--teal); }
-
-  section { margin-bottom: 32px; }
-  h2 {
-    font-size: 13px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim);
-    font-weight: 600; margin: 0 0 12px; font-family: 'IBM Plex Mono', monospace;
-    display: flex; align-items: center; justify-content: space-between;
+  .goal-ok { color: var(--ok); }
+  .vital.status::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--status); }
+  .badge {
+    display: inline-block; margin-top: 6px; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 600;
+    font-family: 'IBM Plex Mono', monospace; background: color-mix(in srgb, var(--status) 16%, transparent); color: var(--status);
   }
-
-  summary.log-summary {
-    font-size: 13px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim);
-    font-weight: 600; margin: 0 0 12px; font-family: 'IBM Plex Mono', monospace;
-    cursor: pointer; list-style: none; display: flex; align-items: center; gap: 7px;
+  .vital.skeleton .value, .vital.skeleton .label {
+    color: transparent; border-radius: 6px;
+    background: linear-gradient(90deg, var(--surface-2) 25%, var(--line) 50%, var(--surface-2) 75%); background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
   }
-  summary.log-summary::-webkit-details-marker { display: none; }
-  summary.log-summary::before { content: '▸'; display: inline-block; font-size: 10px; transition: transform 0.15s; }
-  details[open] > summary.log-summary::before { transform: rotate(90deg); }
-  summary.log-summary:hover { color: var(--text); }
+  .vital.skeleton .label { width: 60%; }
+  .vital.skeleton .value { width: 80%; }
 
-  form.entry {
-    background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px;
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; align-items: end;
+  .trend { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  @media (min-width: 640px) { .trend { grid-template-columns: repeat(4, 1fr); } }
+  .trend-item { padding: 12px 14px; }
+  .trend-item .label { font-size: 11px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: .06em; }
+  .trend-item .value { font-family: 'IBM Plex Mono', monospace; font-size: 20px; font-weight: 500; margin: 3px 0 2px; font-variant-numeric: tabular-nums; }
+  .trend-item .value .unit { font-size: 11px; color: var(--text-dim); margin-left: 2px; }
+  .trend-item .meta { font-size: 11px; font-family: 'IBM Plex Mono', monospace; color: var(--text-dim); }
+  .spark { display: block; width: 100%; height: 28px; margin-top: 6px; overflow: visible; }
+  .spark path { fill: none; stroke: var(--honey); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+  .spark path.area { fill: color-mix(in srgb, var(--honey) 14%, transparent); stroke: none; }
+
+  .notice {
+    display: flex; align-items: center; gap: 10px; padding: 12px 14px; margin-top: 10px; font-size: 13px;
+    border-radius: 12px; border: 1px solid var(--line); background: var(--surface);
   }
-  form.entry .note-field { grid-column: 1 / -1; }
-  .field { display: flex; flex-direction: column; gap: 5px; }
+  .notice.warn { border-color: color-mix(in srgb, var(--warn) 50%, var(--line)); background: color-mix(in srgb, var(--warn) 9%, var(--surface)); }
+  .notice .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex-shrink: 0; }
+  .notice.warn .dot { background: var(--warn); }
+  .notice a { color: var(--terracotta); font-weight: 600; text-decoration: none; margin-left: auto; white-space: nowrap; cursor: pointer; }
+
+  .goals-bar { display: flex; align-items: center; gap: 12px 14px; flex-wrap: wrap; padding: 12px 14px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text-dim); }
+  .goals-bar label { display: flex; align-items: center; gap: 6px; }
+  .goals-bar input { width: 72px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; color: var(--text); padding: 7px 8px; font-family: 'IBM Plex Mono', monospace; font-size: 14px; }
+  .goals-bar input:focus { outline: none; border-color: var(--honey); }
+
+  /* ── Formulare ─────────────────────────────────────────── */
+  .segmented { display: inline-grid; grid-template-columns: 1fr 1fr; background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 3px; margin-bottom: 16px; position: relative; width: 100%; max-width: 360px; }
+  .segmented .thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); border-radius: 999px; background: var(--surface); box-shadow: var(--shadow); transition: transform .3s var(--ease); }
+  .segmented[data-active="labs"] .thumb { transform: translateX(100%); }
+  .segmented button { position: relative; z-index: 1; background: none; border: none; padding: 9px 0; font: inherit; font-size: 14px; font-weight: 500; color: var(--text-dim); cursor: pointer; transition: color .2s; }
+  .segmented button.active { color: var(--text); }
+  .panel { display: none; }
+  .panel.active { display: block; animation: rise .35s var(--ease) both; }
+
+  form.entry { padding: 16px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; align-items: end; }
+  @media (min-width: 640px) { form.entry { grid-template-columns: repeat(4, 1fr); } }
+  form.entry .full { grid-column: 1 / -1; }
+  .field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
   .field label { font-size: 11px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; }
-  .field input, .field select {
-    background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; color: var(--text);
-    padding: 9px 10px; font-family: 'IBM Plex Mono', monospace; font-size: 14px; width: 100%;
+  .field input {
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; color: var(--text);
+    padding: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 16px; width: 100%; min-width: 0;
+    transition: border-color .15s, box-shadow .15s;
   }
-  .field input:focus, .field select:focus { outline: none; border-color: var(--amber); }
+  .field input:focus { outline: none; border-color: var(--amber); box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 18%, transparent); }
+  .field input[readonly] { opacity: .7; }
+  .group-label { grid-column: 1 / -1; font-size: 11px; font-family: 'IBM Plex Mono', monospace; color: var(--terracotta); text-transform: uppercase; letter-spacing: .1em; margin-top: 4px; }
   button.save {
-    grid-column: 1 / -1; background: var(--amber); color: #1a1206; border: none; border-radius: 6px;
-    padding: 11px; font-weight: 600; font-size: 14px; cursor: pointer; margin-top: 4px;
+    grid-column: 1 / -1; background: var(--amber); color: #1a1206; border: none; border-radius: 10px;
+    padding: 13px; font-weight: 600; font-size: 15px; cursor: pointer; margin-top: 4px; transition: filter .15s, transform .1s;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
   }
-  button.save:hover { filter: brightness(1.08); }
-  button.save:active { transform: translateY(1px); }
-  button.save:disabled { opacity: 0.6; cursor: default; }
+  button.save:hover { filter: brightness(1.06); }
+  button.save:active { transform: scale(.98); }
+  button.save:disabled { opacity: 0.65; cursor: default; }
+  button.save .spinner { width: 15px; height: 15px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; display: none; }
+  button.save.busy .spinner { display: inline-block; }
   button.cancel {
-    grid-column: 1 / -1; background: none; color: var(--text-dim); border: 1px solid var(--line); border-radius: 6px;
-    padding: 10px; font-weight: 500; font-size: 13px; cursor: pointer; margin-top: -2px;
+    grid-column: 1 / -1; background: none; color: var(--text-dim); border: 1px solid var(--line); border-radius: 10px;
+    padding: 11px; font-weight: 500; font-size: 14px; cursor: pointer; margin-top: -2px;
   }
   button.cancel:hover { color: var(--text); border-color: var(--text-dim); }
-  table.log button.edit { background: none; border: none; color: var(--stone); cursor: pointer; font-family: inherit; font-size: 12px; margin-right: 10px; }
-  table.log tr.editing { background: var(--surface-2); }
+  .form-hint { grid-column: 1 / -1; font-size: 11.5px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; margin: -2px 0 0; }
 
-  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  @media (max-width: 640px) { .charts { grid-template-columns: 1fr; } }
-  .chart-card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
-  .chart-card h3 { font-size: 12px; color: var(--text-dim); margin: 0 0 10px; font-family: 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; }
-  /* Schlaf-Zeitstrahl: reines HTML/CSS statt Chart.js (siehe renderSleepChart) */
-  .sleep-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; font-size: 11px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; }
-  .sleep-legend-item { display: flex; align-items: center; gap: 5px; }
-  .sleep-legend-dot { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
-  .sleep-axis { position: relative; height: 16px; margin-bottom: 4px; margin-left: 92px; }
-  .sleep-axis-tick { position: absolute; transform: translateX(-50%); font-size: 10px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; white-space: nowrap; }
-  .sleep-rows { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
-  .sleep-row { display: flex; align-items: center; gap: 8px; }
-  .sleep-row-label { width: 84px; flex-shrink: 0; font-size: 10px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; white-space: nowrap; }
-  .sleep-track { position: relative; flex: 1; height: 14px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
-  .sleep-seg { position: absolute; top: 0; bottom: 0; }
-
-  table.log { width: 100%; border-collapse: collapse; font-family: 'IBM Plex Mono', monospace; font-size: 13px; }
-  table.log th, table.log td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
-  table.log th { color: var(--text-dim); font-weight: 500; font-size: 11px; text-transform: uppercase; }
-  table.log tr:hover { background: var(--surface-2); }
-  table.log button.del { background: none; border: none; color: var(--coral); cursor: pointer; font-family: inherit; font-size: 12px; }
-  table.log td.note { color: var(--text-dim); font-family: 'IBM Plex Sans', sans-serif; font-size: 12px; }
-
-  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .table-scroll table.log td, .table-scroll table.log th { white-space: nowrap; }
-  .table-scroll table.log td.note { white-space: normal; min-width: 140px; }
-
-  .empty { color: var(--text-dim); font-size: 13px; padding: 14px 0; }
-  .status { font-size: 12px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; margin-top: 8px; min-height: 16px; }
-
-  .lab-select {
-    background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; color: var(--text);
-    padding: 6px 10px; font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+  /* ── Logs ──────────────────────────────────────────────── */
+  details.log { margin-top: 18px; }
+  details.log summary {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim);
+    font-weight: 600; font-family: 'IBM Plex Mono', monospace; cursor: pointer; list-style: none;
+    display: flex; align-items: center; gap: 8px; padding: 6px 0;
   }
+  details.log summary::-webkit-details-marker { display: none; }
+  details.log summary::before { content: '▸'; display: inline-block; font-size: 10px; transition: transform .25s var(--ease); }
+  details.log[open] summary::before { transform: rotate(90deg); }
+  details.log summary:hover { color: var(--text); }
+  details.log summary .count { font-weight: 400; letter-spacing: normal; text-transform: none; }
+  /* weiches Aufklappen (Browser mit ::details-content; sonst einfach ohne Animation) */
+  details.log::details-content { height: 0; overflow: clip; transition: height .3s var(--ease), content-visibility .3s allow-discrete; }
+  details.log[open]::details-content { height: auto; }
+  .log-body { padding-top: 8px; }
+
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+  table.log { width: 100%; border-collapse: collapse; font-family: 'IBM Plex Mono', monospace; font-size: 13px; }
+  table.log th, table.log td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  table.log tr:last-child td { border-bottom: none; }
+  table.log th { color: var(--text-dim); font-weight: 500; font-size: 11px; text-transform: uppercase; background: var(--surface-2); }
+  table.log tbody tr { transition: background .15s; }
+  table.log tbody tr:hover { background: var(--surface-2); }
+  table.log td.note { color: var(--text-dim); font-family: 'IBM Plex Sans', sans-serif; font-size: 12px; white-space: normal; min-width: 140px; }
+  table.log button { background: none; border: none; cursor: pointer; font-family: inherit; font-size: 12px; padding: 4px 6px; border-radius: 6px; }
+  table.log button.edit { color: var(--stone); }
+  html[data-theme="dark"] table.log button.edit { color: var(--biscotti); }
+  table.log button.del { color: var(--coral); }
+  table.log button:hover { background: var(--line); }
+
+  .empty { color: var(--text-dim); font-size: 13px; padding: 14px; }
+
+  /* ── Charts ────────────────────────────────────────────── */
+  .range { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+  .chip {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 999px; color: var(--text-dim);
+    padding: 6px 14px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer;
+    transition: background .2s, color .2s, border-color .2s, transform .1s;
+  }
+  .chip:active { transform: scale(.95); }
+  .chip.active { background: var(--terracotta); border-color: var(--terracotta); color: #fff; }
+  .charts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+  @media (max-width: 700px) { .charts { grid-template-columns: minmax(0, 1fr); } }
+  .charts .wide { grid-column: 1 / -1; }
+  .chart-card { padding: 14px; position: relative; min-width: 0; }
+  .chart-card h3 { font-size: 12px; color: var(--text-dim); margin: 0 0 10px; font-family: 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; display: flex; justify-content: space-between; gap: 8px; }
+  .chart-card h3 .sub { font-weight: 400; text-transform: none; letter-spacing: normal; }
+  .chart-box { position: relative; height: 200px; }
+  .chart-box.small { height: 90px; }
+  .chart-empty { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; padding: 10px; font-size: 12.5px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; }
+  .chart-box.is-empty canvas { visibility: hidden; }
+  .chart-box.is-empty .chart-empty { display: flex; }
+
+  .comp-row { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; align-items: center; }
+  .comp-row + .comp-row { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+  .comp-row .comp-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--text-dim); }
+  .comp-row .comp-value { font-family: 'IBM Plex Mono', monospace; font-size: 18px; color: var(--text); margin-top: 2px; }
+  .comp-row .comp-value .unit { font-size: 11px; color: var(--text-dim); }
 
   .lab-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
   .lab-chip {
     background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; color: var(--text-dim);
-    padding: 4px 10px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; cursor: pointer;
-    display: flex; align-items: center; gap: 5px;
+    padding: 5px 11px; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; cursor: pointer;
+    display: flex; align-items: center; gap: 6px; transition: background .2s, color .2s, border-color .2s, transform .1s;
   }
-  .lab-chip:hover { border-color: var(--honey); }
-  .lab-chip.active { background: var(--chip-color, var(--honey)); border-color: var(--chip-color, var(--honey)); color: #1a1206; font-weight: 600; }
+  .lab-chip:active { transform: scale(.95); }
+  .lab-chip:hover { border-color: var(--chip-color, var(--honey)); }
+  .lab-chip.active { background: var(--chip-color, var(--honey)); border-color: var(--chip-color, var(--honey)); color: #fff; font-weight: 600; }
   .lab-chip .lab-chip-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--chip-color, var(--text-dim)); flex-shrink: 0; }
-  .lab-chip.active .lab-chip-dot { background: #1a1206; }
+  .lab-chip.active .lab-chip-dot { background: #fff; }
 
-  .sync-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  /* Schlaf-Zeitstrahl: reines HTML/CSS statt Chart.js (siehe renderSleepChart) */
+  .sleep-legend { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; font-size: 11px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; }
+  .sleep-legend-item { display: flex; align-items: center; gap: 5px; }
+  .sleep-legend-dot { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+  .sleep-axis { position: relative; height: 16px; margin: 0 46px 4px 86px; }
+  .sleep-axis-tick { position: absolute; transform: translateX(-50%); font-size: 10px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; white-space: nowrap; }
+  .sleep-rows { display: flex; flex-direction: column; gap: 4px; max-height: 340px; overflow-y: auto; }
+  .sleep-row { display: flex; align-items: center; gap: 8px; }
+  .sleep-row-label { width: 78px; flex-shrink: 0; font-size: 10.5px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; white-space: nowrap; }
+  .sleep-row-total { width: 38px; flex-shrink: 0; text-align: right; font-size: 10.5px; color: var(--text); font-family: 'IBM Plex Mono', monospace; }
+  .sleep-track { position: relative; flex: 1; height: 14px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+  .sleep-seg { position: absolute; top: 0; bottom: 0; transform-origin: left; }
+  .stagger-x .sleep-track { animation: growX .6s var(--ease) both; animation-delay: calc(var(--i, 0) * 25ms); transform-origin: left; }
+  @keyframes growX { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+
+  .sync-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
   button.sync {
-    background: var(--surface); border: 1px solid var(--line); color: var(--text); border-radius: 6px;
-    padding: 9px 16px; font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 500; cursor: pointer;
+    background: var(--surface); border: 1px solid var(--line); color: var(--text); border-radius: 10px;
+    padding: 10px 16px; font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 500; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 8px; transition: border-color .15s, color .15s, transform .1s;
   }
   button.sync:hover { border-color: var(--honey); color: var(--honey); }
-  button.sync:disabled { opacity: 0.6; cursor: default; }
+  button.sync:active { transform: scale(.97); }
+  button.sync:disabled { opacity: 0.65; cursor: default; }
+  button.sync svg { width: 16px; height: 16px; }
+  button.sync.busy svg { animation: spin 1s linear infinite; }
   .sync-status { font-size: 12px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; }
 
-  .goals-bar {
-    display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 28px;
-    background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px;
-    font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text-dim);
+  /* ── Toast ─────────────────────────────────────────────── */
+  .toast {
+    position: fixed; left: 50%; bottom: calc(var(--tabbar-h) + 18px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    z-index: 50; background: var(--text); color: var(--ink); padding: 11px 16px; border-radius: 12px; font-size: 14px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.25); max-width: calc(100% - 32px); display: none; align-items: center; gap: 8px;
   }
-  .goals-bar .goals-label { text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
-  .goals-bar label { display: flex; align-items: center; gap: 6px; color: var(--text-dim); }
-  .goals-bar input {
-    width: 70px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; color: var(--text);
-    padding: 6px 8px; font-family: 'IBM Plex Mono', monospace; font-size: 13px;
-  }
-  .goals-bar input:focus { outline: none; border-color: var(--honey); }
-  .goal-hint { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+  .toast.show { display: flex; animation: toastIn .3s var(--ease); }
+  .toast.error { background: var(--coral); color: #fff; }
+  @media (min-width: 760px) { .toast { bottom: 28px; } }
 
-  header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-  button.theme-toggle {
-    background: var(--surface); border: 1px solid var(--line); color: var(--text-dim); border-radius: 999px;
-    width: 38px; height: 38px; font-size: 16px; cursor: pointer; flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center; margin-top: 2px;
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
   }
-  button.theme-toggle:hover { border-color: var(--honey); color: var(--honey); }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <div>
-      <div class="eyebrow">Health Tracker</div>
-      <h1>Vitals</h1>
-      <div class="date" id="today"></div>
+<header class="topbar">
+  <div>
+    <div class="eyebrow">Health Tracker</div>
+    <h1 id="pageTitle">Übersicht</h1>
+    <div class="date" id="today"></div>
+  </div>
+  <div class="header-actions">
+    <button class="icon-btn" id="themeToggle" type="button" title="Hell/Dunkel wechseln" aria-label="Hell/Dunkel wechseln"></button>
+    <button class="icon-btn" id="menuBtn" type="button" title="Menü" aria-label="Menü" aria-haspopup="true" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+    </button>
+    <div class="menu" id="menu" role="menu">
+      <a href="/api/export?type=metrics" download role="menuitem">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+        Vitals als CSV exportieren
+      </a>
+      <a href="/api/export?type=labs" download role="menuitem">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+        Blutwerte als CSV exportieren
+      </a>
+      <hr>
+      <button type="button" class="danger" id="logoutBtn" role="menuitem">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg>
+        Abmelden
+      </button>
     </div>
-    <button class="theme-toggle" id="themeToggle" type="button" title="Farbschema wechseln" aria-label="Farbschema wechseln">🌙</button>
-  </header>
+  </div>
+</header>
 
-  <div class="vitals" id="vitals"></div>
+<nav class="tabbar" id="tabbar" aria-label="Bereiche">
+  <button type="button" data-page="uebersicht"><span class="pill"></span>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5L12 3l9 7.5V20a1 1 0 01-1 1h-5v-6h-6v6H4a1 1 0 01-1-1z"/></svg>
+    <span>Übersicht</span></button>
+  <button type="button" data-page="erfassen"><span class="pill"></span>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M12 8v8M8 12h8"/></svg>
+    <span>Erfassen</span></button>
+  <button type="button" data-page="verlauf"><span class="pill"></span>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 6-7"/></svg>
+    <span>Verlauf</span></button>
+  <button type="button" data-page="aktivitaet"><span class="pill"></span>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+    <span>Aktivität</span></button>
+</nav>
 
-  <div class="goals-bar">
-    <span class="goals-label">Ziele</span>
-    <label>Gewicht <input type="number" step="0.1" id="goalWeight" placeholder="kg"> kg</label>
-    <label>Körperfett <input type="number" step="0.1" id="goalBodyFat" placeholder="%"> %</label>
-    <button class="sync" id="goalsSaveBtn" type="button">Speichern</button>
-    <span class="sync-status" id="goalsStatus"></span>
+<main class="wrap">
+
+  <!-- ═══ Übersicht ═══════════════════════════════════════ -->
+  <div class="page" id="page-uebersicht" data-title="Übersicht">
+    <section>
+      <div class="vitals" id="vitals">
+        <div class="vital card skeleton"><div class="label">.</div><div class="value">.</div></div>
+        <div class="vital card skeleton"><div class="label">.</div><div class="value">.</div></div>
+        <div class="vital card skeleton"><div class="label">.</div><div class="value">.</div></div>
+        <div class="vital card skeleton"><div class="label">.</div><div class="value">.</div></div>
+        <div class="vital card skeleton"><div class="label">.</div><div class="value">.</div></div>
+        <div class="vital card skeleton"><div class="label">.</div><div class="value">.</div></div>
+      </div>
+      <div id="syncHint"></div>
+    </section>
+
+    <section>
+      <h2>Letzte 7 Tage <span class="sub">vs. Woche davor</span></h2>
+      <div class="trend" id="trend"></div>
+    </section>
+
+    <section>
+      <h2>Ziele</h2>
+      <div class="goals-bar card">
+        <label>Gewicht <input type="number" inputmode="decimal" step="0.1" id="goalWeight" placeholder="kg"> kg</label>
+        <label>Körperfett <input type="number" inputmode="decimal" step="0.1" id="goalBodyFat" placeholder="%"> %</label>
+        <button class="sync" id="goalsSaveBtn" type="button">Speichern</button>
+      </div>
+    </section>
   </div>
 
-  <section>
-    <h2>Eintrag erfassen</h2>
-    <form class="entry" id="entryForm">
-      <div class="field"><label>Datum</label><input type="date" name="entry_date" required></div>
-      <div class="field"><label>Gewicht (kg)</label><input type="number" step="0.1" name="weight_kg"></div>
-      <div class="field"><label>Fettmasse (kg)</label><input type="number" step="0.1" name="fat_kg"></div>
-      <div class="field"><label>Muskel (kg)</label><input type="number" step="0.1" name="muscle_kg"></div>
-      <div class="field"><label>Körperwasser (kg)</label><input type="number" step="0.1" name="water_kg"></div>
-      <div class="field"><label>RR systolisch</label><input type="number" name="bp_systolic"></div>
-      <div class="field"><label>RR diastolisch</label><input type="number" name="bp_diastolic"></div>
-      <div class="field"><label>Puls</label><input type="number" name="pulse"></div>
-      <div class="field note-field"><label>Notiz</label><input type="text" name="note" placeholder="z.B. Beginn Metformin"></div>
-      <button class="save" type="submit" id="entrySaveBtn">Speichern</button>
-      <button class="cancel" type="button" id="entryCancelBtn" style="display:none">Abbrechen</button>
-      <div class="status" id="formStatus"></div>
-    </form>
-  </section>
+  <!-- ═══ Erfassen ════════════════════════════════════════ -->
+  <div class="page" id="page-erfassen" data-title="Erfassen">
+    <div class="segmented" id="entrySwitch" data-active="vitals">
+      <span class="thumb"></span>
+      <button type="button" data-panel="vitals" class="active">Vitals</button>
+      <button type="button" data-panel="labs">Blutwerte</button>
+    </div>
 
-  <section>
-    <h2>Verlauf</h2>
+    <div class="panel active" id="panel-vitals">
+      <form class="entry card" id="entryForm" novalidate>
+        <div class="field full"><label for="f-date">Datum</label><input id="f-date" type="date" name="entry_date" required></div>
+        <div class="group-label">Waage</div>
+        <div class="field"><label for="f-weight">Gewicht (kg)</label><input id="f-weight" type="number" inputmode="decimal" step="0.1" name="weight_kg"></div>
+        <div class="field"><label for="f-fat">Fettmasse (kg)</label><input id="f-fat" type="number" inputmode="decimal" step="0.1" name="fat_kg"></div>
+        <div class="field"><label for="f-muscle">Muskel (kg)</label><input id="f-muscle" type="number" inputmode="decimal" step="0.1" name="muscle_kg"></div>
+        <div class="field"><label for="f-water">Körperwasser (kg)</label><input id="f-water" type="number" inputmode="decimal" step="0.1" name="water_kg"></div>
+        <div class="group-label">Kreislauf</div>
+        <div class="field"><label for="f-sys">RR systolisch</label><input id="f-sys" type="number" inputmode="numeric" name="bp_systolic"></div>
+        <div class="field"><label for="f-dia">RR diastolisch</label><input id="f-dia" type="number" inputmode="numeric" name="bp_diastolic"></div>
+        <div class="field"><label for="f-pulse">Puls</label><input id="f-pulse" type="number" inputmode="numeric" name="pulse"></div>
+        <div class="field full"><label for="f-note">Notiz</label><input id="f-note" type="text" name="note" placeholder="z.B. Beginn Metformin"></div>
+        <p class="form-hint">Leere Felder bleiben unverändert — so lassen sich Werte über den Tag nachtragen.</p>
+        <button class="save" type="submit" id="entrySaveBtn"><span class="spinner"></span><span class="label">Speichern</span></button>
+        <button class="cancel" type="button" id="entryCancelBtn" style="display:none">Abbrechen</button>
+      </form>
+
+      <details class="log" id="logDetails">
+        <summary>Log — Vitals <span class="count" id="logCount"></span></summary>
+        <div class="log-body" id="logWrap"><div class="empty">Lädt…</div></div>
+      </details>
+    </div>
+
+    <div class="panel" id="panel-labs">
+      <form class="entry card" id="labForm" novalidate>
+        <input type="hidden" name="id" value="">
+        <div class="field"><label for="l-date">Datum</label><input id="l-date" type="date" name="entry_date" required></div>
+        <div class="field"><label for="l-test">Test</label><input id="l-test" type="text" name="test_name" list="testNames" placeholder="z.B. LDL" required autocomplete="off"></div>
+        <datalist id="testNames"></datalist>
+        <div class="field"><label for="l-value">Wert</label><input id="l-value" type="number" inputmode="decimal" step="any" name="value" required></div>
+        <div class="field"><label for="l-unit">Einheit</label><input id="l-unit" type="text" name="unit" list="unitList" placeholder="z.B. mg/dl" autocomplete="off"></div>
+        <datalist id="unitList">
+          <option value="mmol/l"><option value="nmol/l"><option value="mg/dl"><option value="µg/l">
+          <option value="U/l"><option value="ng/ml"><option value="pg/ml"><option value="g/dl">
+          <option value="%"><option value="mIU/l">
+        </datalist>
+        <div class="field full"><label for="l-note">Notiz</label><input id="l-note" type="text" name="note" placeholder="z.B. nüchtern"></div>
+        <button class="save" type="submit" id="labSaveBtn"><span class="spinner"></span><span class="label">Blutwert speichern</span></button>
+        <button class="cancel" type="button" id="labCancelBtn" style="display:none">Abbrechen</button>
+      </form>
+
+      <details class="log" id="labLogDetails">
+        <summary>Log — Blutwerte <span class="count" id="labLogCount"></span></summary>
+        <div class="log-body" id="labLogWrap"><div class="empty">Lädt…</div></div>
+      </details>
+    </div>
+  </div>
+
+  <!-- ═══ Verlauf ═════════════════════════════════════════ -->
+  <div class="page" id="page-verlauf" data-title="Verlauf">
+    <div class="range" id="rangePicker">
+      <button type="button" class="chip" data-range="30">30 Tage</button>
+      <button type="button" class="chip" data-range="90">90 Tage</button>
+      <button type="button" class="chip" data-range="365">1 Jahr</button>
+      <button type="button" class="chip" data-range="all">Alles</button>
+    </div>
     <div class="charts">
-      <div class="chart-card"><h3>Gewicht</h3><canvas id="chartWeight" height="140"></canvas></div>
-      <div class="chart-card"><h3>Körperzusammensetzung</h3><canvas id="chartComp" height="140"></canvas></div>
-      <div class="chart-card"><h3>Blutdruck & Ruhepuls <span style="font-weight:400; text-transform:none;">(manuell + Health Sync)</span></h3><canvas id="chartBP" height="140"></canvas></div>
-      <div class="chart-card"><h3>Blutfette</h3><canvas id="chartLipids" height="140"></canvas></div>
-      <div class="chart-card" style="grid-column: 1 / -1;">
+      <div class="chart-card card wide">
+        <h3>Gewicht <span class="sub" id="weightSub"></span></h3>
+        <div class="chart-box"><canvas id="chartWeight"></canvas><div class="chart-empty"></div></div>
+      </div>
+      <div class="chart-card card">
+        <h3>Körperzusammensetzung</h3>
+        <div class="comp-row"><div><div class="comp-label">Körperfett</div><div class="comp-value" id="compFatVal">—</div></div><div class="chart-box small"><canvas id="chartFat"></canvas><div class="chart-empty"></div></div></div>
+        <div class="comp-row"><div><div class="comp-label">Muskel</div><div class="comp-value" id="compMuscleVal">—</div></div><div class="chart-box small"><canvas id="chartMuscle"></canvas><div class="chart-empty"></div></div></div>
+        <div class="comp-row"><div><div class="comp-label">Körperwasser</div><div class="comp-value" id="compWaterVal">—</div></div><div class="chart-box small"><canvas id="chartWater"></canvas><div class="chart-empty"></div></div></div>
+      </div>
+      <div class="chart-card card">
+        <h3>Blutdruck &amp; Ruhepuls <span class="sub">manuell + Health Sync</span></h3>
+        <div class="chart-box" style="height:290px"><canvas id="chartBP"></canvas><div class="chart-empty"></div></div>
+      </div>
+      <div class="chart-card card">
+        <h3>Blutfette</h3>
+        <div class="chart-box"><canvas id="chartLipids"></canvas><div class="chart-empty"></div></div>
+      </div>
+      <div class="chart-card card">
         <h3>Blutwerte im Zeitverlauf</h3>
         <div class="lab-picker" id="labPicker"></div>
-        <canvas id="chartLab" height="110"></canvas>
+        <div class="chart-box"><canvas id="chartLab"></canvas><div class="chart-empty"></div></div>
       </div>
     </div>
-  </section>
+  </div>
 
-  <section>
-    <h2>Health Sync <span style="font-weight:400; text-transform:none; letter-spacing:normal;">(Schritte, Puls, Schlaf, Blutdruck, Aktivitäten)</span></h2>
+  <!-- ═══ Aktivität ═══════════════════════════════════════ -->
+  <div class="page" id="page-aktivitaet" data-title="Aktivität">
     <div class="sync-bar">
-      <button class="sync" id="syncBtn">Jetzt synchronisieren</button>
-      <span class="sync-status" id="syncStatus"></span>
+      <button class="sync" id="syncBtn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 01-15.5 6.2L3 16m0-4a9 9 0 0115.5-6.2L21 8M21 3v5h-5M3 21v-5h5"/></svg>
+        Jetzt synchronisieren
+      </button>
+      <span class="sync-status" id="syncStatus">Läuft automatisch beim Öffnen der App (max. alle 3 h).</span>
     </div>
     <div class="charts">
-      <div class="chart-card"><h3>Schritte</h3><canvas id="chartSteps" height="140"></canvas></div>
-      <div class="chart-card"><h3>Schlaf</h3><div id="chartSleep"></div></div>
+      <div class="chart-card card wide">
+        <h3>Schritte <span class="sub">letzte 30 Tage · Linie = Ø 7 Tage</span></h3>
+        <div class="chart-box"><canvas id="chartSteps"></canvas><div class="chart-empty"></div></div>
+      </div>
+      <div class="chart-card card wide">
+        <h3>Schlaf <span class="sub">letzte 30 Nächte</span></h3>
+        <div id="chartSleep"></div>
+      </div>
     </div>
-  </section>
-
-  <section>
-    <h2>Blutwerte erfassen</h2>
-    <form class="entry" id="labForm">
-      <input type="hidden" name="id" value="">
-      <div class="field"><label>Datum</label><input type="date" name="entry_date" required></div>
-      <div class="field"><label>Test</label><input type="text" name="test_name" list="testNames" placeholder="z.B. Testosteron" required></div>
-      <datalist id="testNames"></datalist>
-      <div class="field"><label>Wert</label><input type="number" step="any" name="value" required></div>
-      <div class="field"><label>Einheit</label><input type="text" name="unit" list="unitList" placeholder="z.B. nmol/l"></div>
-      <datalist id="unitList">
-        <option value="mmol/l"><option value="nmol/l"><option value="mg/dl"><option value="µg/l">
-        <option value="U/l"><option value="ng/ml"><option value="pg/ml"><option value="g/dl">
-        <option value="%"><option value="mIU/l">
-      </datalist>
-      <div class="field note-field"><label>Notiz</label><input type="text" name="note" placeholder="z.B. Beginn Metformin"></div>
-      <button class="save" type="submit" id="labSaveBtn">Blutwert speichern</button>
-      <button class="cancel" type="button" id="labCancelBtn" style="display:none">Abbrechen</button>
-      <div class="status" id="labFormStatus"></div>
-    </form>
-  </section>
-
-  <section>
-    <details>
-      <summary class="log-summary">Log — Vitals</summary>
-      <div id="logWrap"><div class="empty">Lädt…</div></div>
+    <details class="log" id="activitiesDetails">
+      <summary>Log — Aktivitäten <span class="count" id="activitiesCount"></span></summary>
+      <div class="log-body" id="activitiesLogWrap"><div class="empty">Lädt…</div></div>
     </details>
-  </section>
+  </div>
+</main>
 
-  <section>
-    <details>
-      <summary class="log-summary">Log — Blutwerte</summary>
-      <div id="labLogWrap"><div class="empty">Lädt…</div></div>
-    </details>
-  </section>
-
-  <section>
-    <details>
-      <summary class="log-summary">Log — Aktivitäten</summary>
-      <div id="activitiesLogWrap"><div class="empty">Lädt…</div></div>
-    </details>
-  </section>
-</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
+// ── Hilfsfunktionen ─────────────────────────────────────────────────────────
+
 // Freitext (Notizen, Testnamen, Health-Sync-Werte) landet per Template-Literal in
 // innerHTML -- ohne Escaping wäre das Stored XSS möglich (z.B. Notiz "<img onerror=...>").
 function escapeHtml(v) {
@@ -331,22 +578,8 @@ function escapeHtml(v) {
   return String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-function axisColor() { return getComputedStyle(document.documentElement).getPropertyValue('--text-dim').trim(); }
-function gridColor() { return getComputedStyle(document.documentElement).getPropertyValue('--line').trim(); }
-
-function currentTheme() { return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'; }
-
-function updateThemeToggleIcon() {
-  document.getElementById('themeToggle').textContent = currentTheme() === 'dark' ? '☀️' : '🌙';
-  document.querySelector('meta[name=theme-color]').setAttribute('content', currentTheme() === 'dark' ? '#1C140F' : '#D24136');
-}
-
-function applyTheme(theme) {
-  if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-  else document.documentElement.removeAttribute('data-theme');
-  updateThemeToggleIcon();
-  renderAllCharts();
-}
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const DAY = 86400000;
 
 // Datum im lokalen Kalender (toISOString() wäre UTC -- zwischen 0 und 2 Uhr
 // stünde im Formular sonst noch das gestrige Datum)
@@ -354,17 +587,83 @@ function todayIso() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+// Kalendertage als UTC-Mitternacht -- so hat jeder Tag exakt 24h Abstand,
+// unabhängig von Sommer-/Winterzeit
+const dayMs = (s) => Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10));
+const fmtDay = (ms) => new Date(ms).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', timeZone: 'UTC' });
+const fmtDayLong = (ms) => new Date(ms).toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
+const fmtNum = (v, d = 1) => v == null ? '—' : Number(v).toLocaleString('de-AT', { minimumFractionDigits: d, maximumFractionDigits: d });
+
+function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 
 async function readError(res) {
   const body = await res.json().catch(() => ({}));
   return body.error || `HTTP ${res.status}`;
 }
 
-function renderAllCharts() {
-  try { renderCharts(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
-  try { renderLabChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
-  try { renderLipidsChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
-  try { renderSyncCharts(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
+// fetch mit Session-Check: ist die Anmeldung abgelaufen, zurück zur PIN-Eingabe
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (res.status === 401) { location.reload(); throw new Error('Nicht angemeldet'); }
+  return res;
+}
+async function getJson(path) {
+  const res = await api(path);
+  if (!res.ok) throw new Error(await readError(res));
+  return res.json();
+}
+function postJson(path, body, method = 'POST') {
+  return api(path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+}
+
+let toastTimer;
+function toast(msg, { error = false, ms = 2200 } = {}) {
+  const el = document.getElementById('toast');
+  el.textContent = (error ? '' : '✓ ') + msg;
+  el.classList.toggle('error', error);
+  el.classList.remove('show');
+  void el.offsetWidth; // Animation neu starten
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), error ? Math.max(ms, 4000) : ms);
+}
+
+function setBusy(btn, busy) {
+  btn.disabled = busy;
+  btn.classList.toggle('busy', busy);
+}
+
+// Zahlen in den Kacheln beim ersten Laden hochzählen lassen
+function countUp(el, to, decimals) {
+  if (reduceMotion) { el.textContent = fmtNum(to, decimals); return; }
+  const start = performance.now();
+  const dur = 700;
+  const step = (now) => {
+    const t = Math.min((now - start) / dur, 1);
+    const eased = 1 - Math.pow(1 - t, 3);
+    el.textContent = fmtNum(to * eased, decimals);
+    if (t < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+// ── Hell/Dunkel ─────────────────────────────────────────────────────────────
+
+const SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+const MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>';
+
+function currentTheme() { return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'; }
+
+function updateThemeUi() {
+  document.getElementById('themeToggle').innerHTML = currentTheme() === 'dark' ? SUN : MOON;
+  document.querySelector('meta[name=theme-color]').setAttribute('content', currentTheme() === 'dark' ? '#1C140F' : '#FAF3E9');
+}
+
+function applyTheme(theme) {
+  if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  else document.documentElement.removeAttribute('data-theme');
+  updateThemeUi();
+  renderAllCharts();
 }
 
 // Ohne manuelle Wahl folgt die App dem Hell/Dunkel-Modus des Geräts -- auch live,
@@ -387,166 +686,122 @@ document.getElementById('themeToggle').addEventListener('click', () => {
   } catch (e) {}
   applyTheme(next);
 });
+updateThemeUi();
 
-updateThemeToggleIcon();
+// ── Menü ────────────────────────────────────────────────────────────────────
 
-const todayEl = document.getElementById('today');
-todayEl.textContent = new Date().toLocaleDateString('de-AT', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+const menu = document.getElementById('menu');
+const menuBtn = document.getElementById('menuBtn');
+function setMenu(open) {
+  menu.classList.toggle('open', open);
+  menuBtn.setAttribute('aria-expanded', String(open));
+}
+menuBtn.addEventListener('click', (e) => { e.stopPropagation(); setMenu(!menu.classList.contains('open')); });
+document.addEventListener('click', (e) => { if (!menu.contains(e.target)) setMenu(false); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setMenu(false); });
+menu.querySelectorAll('a').forEach(a => a.addEventListener('click', () => setMenu(false)));
+
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  await fetch('/api/logout', { method: 'POST' }).catch(() => {});
+  location.reload();
+});
+
+// ── Seiten-Navigation ───────────────────────────────────────────────────────
+
+const PAGES = ['uebersicht', 'erfassen', 'verlauf', 'aktivitaet'];
+let currentPage = null;
+
+function showPage(name, { updateHash = true } = {}) {
+  if (!PAGES.includes(name)) name = 'uebersicht';
+  if (name === currentPage) return;
+  const fromLeft = currentPage && PAGES.indexOf(name) < PAGES.indexOf(currentPage);
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active', 'from-left'));
+  const page = document.getElementById(`page-${name}`);
+  page.classList.add('active');
+  if (fromLeft) page.classList.add('from-left');
+  document.querySelectorAll('#tabbar button').forEach(b => {
+    const active = b.dataset.page === name;
+    b.classList.toggle('active', active);
+    if (active) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
+  const title = document.getElementById('pageTitle');
+  title.textContent = page.dataset.title;
+  title.classList.remove('swap'); void title.offsetWidth; title.classList.add('swap');
+  currentPage = name;
+  if (updateHash && location.hash !== `#${name}`) history.pushState(null, '', `#${name}`);
+  window.scrollTo({ top: 0, behavior: 'instant' });
+  // Charts auf versteckten Seiten haben Größe 0 -- beim Einblenden neu zeichnen
+  // (mit Animation, wie beim ersten Laden)
+  if (name === 'verlauf') renderHistoryCharts();
+  if (name === 'aktivitaet') renderActivityCharts();
+  if (name === 'uebersicht') animateIn(document.getElementById('trend'));
+}
+
+document.querySelectorAll('#tabbar button').forEach(b => b.addEventListener('click', () => showPage(b.dataset.page)));
+window.addEventListener('popstate', () => showPage(location.hash.slice(1), { updateHash: false }));
+
+function animateIn(container) {
+  if (!container) return;
+  [...container.children].forEach((c, i) => c.style.setProperty('--i', i));
+  container.classList.remove('stagger'); void container.offsetWidth; container.classList.add('stagger');
+}
+
+// Vitals / Blutwerte umschalten
+function showPanel(name) {
+  const sw = document.getElementById('entrySwitch');
+  sw.dataset.active = name;
+  sw.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.panel === name));
+  document.querySelectorAll('#page-erfassen .panel').forEach(p => p.classList.toggle('active', p.id === `panel-${name}`));
+}
+document.querySelectorAll('#entrySwitch button').forEach(b => b.addEventListener('click', () => showPanel(b.dataset.panel)));
+
+document.getElementById('today').textContent = new Date().toLocaleDateString('de-AT', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 document.querySelector('#entryForm input[name=entry_date]').value = todayIso();
 document.querySelector('#labForm input[name=entry_date]').value = todayIso();
+
+// ── Daten ───────────────────────────────────────────────────────────────────
 
 let goals = {};
 let data = [];
 let labs = [];
+let syncData = { steps: [], pulse: [], nights: [], activities: [], weight: [], bp: [] };
 let charts = {};
 let selectedLabTests = new Set();
-const LAB_CHART_COLORS = ['#D24136', '#EB8A3E', '#4A7A6D', '#785A46', '#A9762E', '#9C5A7A', '#5A7A9C', '#6D9C5A'];
-function labColor(testName, allTestNames) {
-  const idx = allTestNames.indexOf(testName);
-  return LAB_CHART_COLORS[idx % LAB_CHART_COLORS.length];
-}
+let initialRenderDone = false;
 
 async function loadGoals() {
   try {
-    goals = await fetch('/api/goals').then(r => r.json());
-    renderVitals();
-    try { renderCharts(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
+    goals = await getJson('/api/goals');
     document.getElementById('goalWeight').value = goals.weight_kg ?? '';
     document.getElementById('goalBodyFat').value = goals.body_fat_pct ?? '';
   } catch (e) { console.error('Ziele laden fehlgeschlagen', e); }
 }
 
-document.getElementById('goalsSaveBtn').addEventListener('click', async () => {
-  const statusEl = document.getElementById('goalsStatus');
-  const weight = document.getElementById('goalWeight').value;
-  const bodyFat = document.getElementById('goalBodyFat').value;
-  statusEl.textContent = 'speichert…';
-  try {
-    const res = await fetch('/api/goals', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        weight_kg: weight === '' ? null : Number(weight),
-        body_fat_pct: bodyFat === '' ? null : Number(bodyFat),
-      }),
-    });
-    statusEl.textContent = res.ok ? 'gespeichert.' : 'Fehler: ' + await readError(res);
-  } catch (e) {
-    statusEl.textContent = 'Fehler: keine Verbindung.';
-  }
-  setTimeout(() => statusEl.textContent = '', 3000);
-  await loadGoals();
-});
-
 async function loadData() {
   try {
-    data = await fetch('/api/metrics').then(r => r.json());
+    data = await getJson('/api/metrics');
   } catch (e) {
     console.error('Vitals laden fehlgeschlagen', e);
     document.getElementById('logWrap').innerHTML = '<div class="empty">Fehler beim Laden.</div>';
-    return;
   }
-  renderVitals();
-  renderLog();
-  try { renderCharts(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
-  try { renderCombinedBPChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
 }
 
 async function loadLabs() {
   try {
-    labs = await fetch('/api/labs').then(r => r.json());
+    labs = await getJson('/api/labs');
   } catch (e) {
     console.error('Blutwerte laden fehlgeschlagen', e);
     document.getElementById('labLogWrap').innerHTML = '<div class="empty">Fehler beim Laden.</div>';
-    return;
   }
-  const testNames = [...new Set(labs.map(l => l.test_name))].sort();
-  const datalist = document.getElementById('testNames');
-  datalist.innerHTML = testNames.map(n => `<option value="${escapeHtml(n)}">`).join('');
-
-  // nicht mehr existierende Tests aus der Auswahl entfernen; erste Auswahl
-  // vorbelegen, falls der Nutzer noch nichts gewählt hat
-  selectedLabTests = new Set([...selectedLabTests].filter(t => testNames.includes(t)));
-  if (!selectedLabTests.size && testNames.length) selectedLabTests.add(testNames[0]);
-
-  const picker = document.getElementById('labPicker');
-  picker.innerHTML = testNames.map(n => {
-    const active = selectedLabTests.has(n);
-    const color = labColor(n, testNames);
-    return `<button type="button" class="lab-chip${active ? ' active' : ''}" style="--chip-color:${color}" data-test="${escapeHtml(n)}"><span class="lab-chip-dot"></span>${escapeHtml(n)}</button>`;
-  }).join('');
-  picker.querySelectorAll('.lab-chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      const t = chip.dataset.test;
-      if (selectedLabTests.has(t)) selectedLabTests.delete(t);
-      else selectedLabTests.add(t);
-      chip.classList.toggle('active');
-      try { renderLabChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
-    });
-  });
-
-  renderLabLog();
-  try { renderLabChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
-  try { renderLipidsChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
 }
 
-function renderVitals() {
-  const merged = buildMergedWeightSeries();
-  const el = document.getElementById('vitals');
-  if (!data.length && !merged.length && !(syncData.bp || []).length) { el.innerHTML = '<div class="empty" style="padding:16px">Noch keine Einträge — leg unten los.</div>'; return; }
-
-  // je Kennzahl den letzten Tag MIT Wert (und den davor) statt stur die letzten
-  // zwei Tage -- sonst zeigt die Karte "—", sobald der neueste Eintrag z.B. nur
-  // ein Gewicht ohne Körperfett enthält
-  const lastTwo = (series, key) => series.filter(d => d[key] != null).slice(0, 2).map(d => d[key]);
-  const [wNow, wPrev] = lastTwo(merged, 'weight_kg');
-  const [fNow, fPrev] = lastTwo(merged, 'body_fat_pct');
-  const [mNow, mPrevV] = lastTwo(merged, 'muscle_pct');
-  const [hNow, hPrev] = lastTwo(merged, 'body_water_pct');
-
-  // Blutdruck: neueste Messung aus manuellen Einträgen ODER Health Sync
-  const manualBp = data.find(d => d.bp_systolic && d.bp_diastolic);
-  const syncBp = (syncData.bp || [])[0];
-  const bp = (syncBp && (!manualBp || syncBp.entry_date >= manualBp.entry_date))
-    ? `${Math.round(syncBp.systolic)}/${Math.round(syncBp.diastolic)}`
-    : manualBp ? `${manualBp.bp_systolic}/${manualBp.bp_diastolic}` : null;
-
-  // Puls: neuester manueller Wert oder Ruhepuls aus Health Sync
-  const manualPulse = data.find(d => d.pulse != null);
-  const syncPulse = (syncData.pulse || []).find(p => p.resting_bpm != null);
-  const pulse = (syncPulse && (!manualPulse || syncPulse.entry_date >= manualPulse.entry_date))
-    ? Math.round(syncPulse.resting_bpm) : manualPulse?.pulse ?? null;
-
-  const rows = [
-    { label: 'Gewicht', v: wNow, unit: 'kg', pv: wPrev, lowerBetter: true, goal: goals.weight_kg },
-    { label: 'Körperfett', v: fNow, unit: '%', pv: fPrev, lowerBetter: true, goal: goals.body_fat_pct },
-    { label: 'Muskel', v: mNow, unit: '%', pv: mPrevV, lowerBetter: false },
-    { label: 'Körperwasser', v: hNow, unit: '%', pv: hPrev, lowerBetter: false },
-    { label: 'Blutdruck', v: bp, unit: 'mmHg' },
-    { label: 'Puls', v: pulse, unit: 'bpm' },
-  ];
-
-  el.innerHTML = rows.map(r => {
-    let delta = '';
-    if (r.pv != null && r.v != null && typeof r.v === 'number') {
-      const diff = (r.v - r.pv).toFixed(1);
-      const improving = r.lowerBetter ? diff < 0 : diff > 0;
-      const cls = Number(diff) === 0 ? '' : improving ? 'neg' : 'pos';
-      delta = `<div class="delta ${cls}">${diff > 0 ? '+' : ''}${diff} vs. vorherige Messung</div>`;
-    }
-    let goalHint = '';
-    if (r.goal != null && r.v != null && typeof r.v === 'number') {
-      const toGo = (r.v - r.goal).toFixed(1);
-      const reached = r.lowerBetter ? r.v <= r.goal : r.v >= r.goal;
-      goalHint = `<div class="goal-hint">Ziel ${r.goal}${r.unit} ${reached ? '✓ erreicht' : `(${toGo > 0 ? '+' : ''}${toGo}${r.unit})`}</div>`;
-    }
-    return `<div class="vital">
-      <div class="label">${r.label}</div>
-      <div class="value">${r.v ?? '—'}${r.v != null ? `<span class="unit">${r.unit}</span>` : ''}</div>
-      ${delta}
-      ${goalHint}
-    </div>`;
-  }).join('');
+async function loadSyncData() {
+  try {
+    syncData = await getJson('/api/sync-data');
+  } catch (e) {
+    console.error('Health-Sync-Daten laden fehlgeschlagen', e);
+    document.getElementById('activitiesLogWrap').innerHTML = '<div class="empty">Fehler beim Laden.</div>';
+  }
 }
 
 // Manuelle Einträge und Health-Sync-Werte pro Tag zusammenführen -- ist beides
@@ -556,8 +811,8 @@ function mergeNum(a, b) {
   return v == null ? null : Math.round(v * 10) / 10;
 }
 
-// Gewicht/Körperfett/Muskel aus manuellen Einträgen und der Health-Sync-Waage
-// (sync_weight_readings) zu einer Tagesreihe zusammenführen, neueste zuerst.
+// Gewicht/Körperfett/Muskel/Wasser aus manuellen Einträgen und der Health-Sync-
+// Waage (sync_weight_readings) zu einer Tagesreihe zusammenführen, neueste zuerst.
 function buildMergedWeightSeries() {
   const manualByDate = {};
   for (const d of data) manualByDate[d.entry_date] = d;
@@ -574,492 +829,521 @@ function buildMergedWeightSeries() {
   }));
 }
 
-function buildChart(id, values, opts = {}) {
-  const ctx = document.getElementById(id);
-  if (charts[id]) charts[id].destroy();
-  const asc = [...(opts.source || data)].reverse();
-  const datasets = values.map(v => ({
-    label: v.label,
-    data: asc.map(d => d[v.key]),
-    borderColor: v.color,
-    backgroundColor: v.color + '33',
-    spanGaps: true,
-    tension: 0.3,
-    pointRadius: 2,
-    fill: v.fill || false,
-  }));
-  if (opts.goalValue != null) {
-    datasets.push({
-      label: 'Ziel',
-      data: asc.map(() => opts.goalValue),
-      borderColor: axisColor(),
-      borderDash: [4, 4],
-      pointRadius: 0,
-      fill: false,
-    });
-  }
-  charts[id] = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: asc.map(d => d.entry_date.slice(5)),
-      datasets
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { display: values.length > 1 || opts.goalValue != null, labels: { color: axisColor(), font: { family: 'IBM Plex Mono', size: 10 } } } },
-      scales: {
-        x: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
-        y: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } }
-      }
-    }
-  });
-}
-
-function renderCharts() {
-  const merged = buildMergedWeightSeries();
-  if (!merged.length) return;
-  buildChart('chartWeight', [{ key: 'weight_kg', label: 'kg', color: '#EB8A3E', fill: true }], { source: merged, goalValue: goals.weight_kg });
-  buildChart('chartComp', [
-    { key: 'body_fat_pct', label: 'Fett %', color: '#D24136' },
-    { key: 'muscle_pct', label: 'Muskel %', color: '#EB8A3E' },
-    { key: 'body_water_pct', label: 'Wasser %', color: '#4A7A6D' },
-  ], { source: merged });
-}
-
-// Blutdruck & Puls kommen aus zwei Quellen (manuelle Einträge + Health Sync),
-// deshalb eigene Funktion statt buildChart(): manuelle Werte als durchgezogene
-// Linie, Health-Sync-Tageswerte (aus Einzelmessungen gemittelt) gestrichelt in
-// derselben Farbe je Kennzahl. Wird sowohl nach dem Laden der Vitals als auch
-// nach dem Laden der Health-Sync-Daten aufgerufen -- was noch nicht geladen ist,
-// zählt einfach als leer.
-function renderCombinedBPChart() {
-  const ctx = document.getElementById('chartBP');
-  if (charts.chartBP) charts.chartBP.destroy();
-
+// Blutdruck & Puls pro Tag aus beiden Quellen (manuell + Health Sync), aufsteigend
+function buildBpSeries() {
   const manualByDate = {};
   for (const d of data) manualByDate[d.entry_date] = d;
-
   const bpByDate = {};
   for (const r of (syncData.bp || [])) {
-    const agg = bpByDate[r.entry_date] || { sysSum: 0, diaSum: 0, count: 0 };
-    agg.sysSum += r.systolic;
-    agg.diaSum += r.diastolic;
-    agg.count += 1;
+    const agg = bpByDate[r.entry_date] || { sys: 0, dia: 0, n: 0 };
+    agg.sys += r.systolic; agg.dia += r.diastolic; agg.n += 1;
     bpByDate[r.entry_date] = agg;
   }
   // Ruhepuls (Ø während der Schlafnacht) statt Tagesdurchschnitt -- der wird durch
   // wache Aktivität (Sport etc.) verzerrt und sagt über den Ruhepuls nichts aus.
   const pulseByDate = {};
-  for (const p of (syncData.pulse || [])) {
-    if (p.resting_bpm != null) pulseByDate[p.entry_date] = p.resting_bpm;
+  for (const p of (syncData.pulse || [])) if (p.resting_bpm != null) pulseByDate[p.entry_date] = p.resting_bpm;
+
+  const merge = (a, b) => (a != null && b != null) ? Math.round((a + b) / 2) : (a != null ? Math.round(a) : b != null ? Math.round(b) : null);
+  const dates = [...new Set([...Object.keys(manualByDate), ...Object.keys(bpByDate), ...Object.keys(pulseByDate)])].sort();
+  return dates.map(d => ({
+    entry_date: d,
+    systolic: merge(manualByDate[d]?.bp_systolic, bpByDate[d] ? bpByDate[d].sys / bpByDate[d].n : null),
+    diastolic: merge(manualByDate[d]?.bp_diastolic, bpByDate[d] ? bpByDate[d].dia / bpByDate[d].n : null),
+    pulse: merge(manualByDate[d]?.pulse, pulseByDate[d]),
+  }));
+}
+
+// Blutdruck-Einstufung nach ESC/ESH-Leitlinie (Praxismessung). Die höhere der
+// beiden Kategorien (systolisch/diastolisch) zählt.
+function bpCategory(sys, dia) {
+  const levels = [
+    { max: [120, 80], label: 'optimal', color: 'var(--ok)' },
+    { max: [130, 85], label: 'normal', color: 'var(--ok)' },
+    { max: [140, 90], label: 'hoch-normal', color: 'var(--warn)' },
+    { max: [160, 100], label: 'Hypertonie Grad 1', color: 'var(--bad)' },
+    { max: [180, 110], label: 'Hypertonie Grad 2', color: 'var(--bad)' },
+    { max: [Infinity, Infinity], label: 'Hypertonie Grad 3', color: 'var(--bad)' },
+  ];
+  const idx = (v, i) => levels.findIndex(l => v < l.max[i]);
+  return levels[Math.max(idx(sys, 0), idx(dia, 1))];
+}
+
+// ── Übersicht ───────────────────────────────────────────────────────────────
+
+function renderVitals() {
+  const merged = buildMergedWeightSeries();
+  const el = document.getElementById('vitals');
+  if (!data.length && !merged.length && !(syncData.bp || []).length) {
+    el.innerHTML = '<div class="empty card" style="grid-column:1/-1">Noch keine Einträge — unter <b>Erfassen</b> loslegen.</div>';
+    return;
   }
 
-  const dates = [...new Set([
-    ...Object.keys(manualByDate),
-    ...Object.keys(bpByDate),
-    ...Object.keys(pulseByDate),
-  ])].sort();
-  if (!dates.length) return;
+  // je Kennzahl den letzten Tag MIT Wert (und den davor) statt stur die letzten
+  // zwei Tage -- sonst zeigt die Karte "—", sobald der neueste Eintrag z.B. nur
+  // ein Gewicht ohne Körperfett enthält
+  const lastTwo = (key) => merged.filter(d => d[key] != null).slice(0, 2);
 
-  // Egal aus welcher Quelle -- pro Tag ein Wert je Kennzahl. Sind manueller
-  // Eintrag und Health-Sync-Tageswert beide vorhanden, wird gemittelt.
-  const merge = (a, b) => (a != null && b != null) ? Math.round((a + b) / 2) : (a ?? b ?? null);
+  // Blutdruck: neueste Messung aus manuellen Einträgen ODER Health Sync
+  const manualBp = data.find(d => d.bp_systolic && d.bp_diastolic);
+  const syncBp = (syncData.bp || [])[0];
+  let bp = null;
+  if (syncBp && (!manualBp || syncBp.entry_date >= manualBp.entry_date)) bp = { sys: Math.round(syncBp.systolic), dia: Math.round(syncBp.diastolic), date: syncBp.entry_date };
+  else if (manualBp) bp = { sys: manualBp.bp_systolic, dia: manualBp.bp_diastolic, date: manualBp.entry_date };
 
-  const systolic = dates.map(d => merge(manualByDate[d]?.bp_systolic, bpByDate[d] ? bpByDate[d].sysSum / bpByDate[d].count : null));
-  const diastolic = dates.map(d => merge(manualByDate[d]?.bp_diastolic, bpByDate[d] ? bpByDate[d].diaSum / bpByDate[d].count : null));
-  const pulse = dates.map(d => merge(manualByDate[d]?.pulse, pulseByDate[d]));
+  // Puls: neuester manueller Wert oder Ruhepuls aus Health Sync
+  const manualPulse = data.find(d => d.pulse != null);
+  const syncPulse = (syncData.pulse || []).find(p => p.resting_bpm != null);
+  let pulse = null;
+  if (syncPulse && (!manualPulse || syncPulse.entry_date >= manualPulse.entry_date)) pulse = { v: Math.round(syncPulse.resting_bpm), date: syncPulse.entry_date, label: 'Ruhepuls' };
+  else if (manualPulse) pulse = { v: manualPulse.pulse, date: manualPulse.entry_date, label: 'Puls' };
 
-  charts.chartBP = new Chart(ctx, {
+  const numberCards = [
+    { label: 'Gewicht', key: 'weight_kg', unit: 'kg', lowerBetter: true, goal: goals.weight_kg },
+    { label: 'Körperfett', key: 'body_fat_pct', unit: '%', lowerBetter: true, goal: goals.body_fat_pct },
+    { label: 'Muskel', key: 'muscle_pct', unit: '%', lowerBetter: false },
+    { label: 'Körperwasser', key: 'body_water_pct', unit: '%', lowerBetter: false },
+  ];
+
+  const cards = numberCards.map(c => {
+    const [now, prev] = lastTwo(c.key);
+    const v = now?.[c.key];
+    let meta = now ? fmtDay(dayMs(now.entry_date)) : 'keine Daten';
+    if (now && prev) {
+      const diff = Math.round((v - prev[c.key]) * 10) / 10;
+      const cls = diff === 0 ? '' : (c.lowerBetter ? diff < 0 : diff > 0) ? 'neg' : 'pos';
+      meta += ` · <span class="delta ${cls}">${diff > 0 ? '+' : ''}${fmtNum(diff)}</span>`;
+    }
+    if (c.goal != null && v != null) {
+      const reached = c.lowerBetter ? v <= c.goal : v >= c.goal;
+      const toGo = Math.round((v - c.goal) * 10) / 10;
+      meta += `<br>Ziel ${fmtNum(c.goal)} ${reached ? '<span class="goal-ok">✓ erreicht</span>' : `(${toGo > 0 ? '+' : ''}${fmtNum(toGo)})`}`;
+    }
+    return `<div class="vital card">
+      <div class="label">${c.label}</div>
+      <div class="value">${v != null ? `<span class="num" data-to="${v}" data-dec="1">${fmtNum(v)}</span><span class="unit">${c.unit}</span>` : '—'}</div>
+      <div class="meta">${meta}</div>
+    </div>`;
+  });
+
+  const cat = bp ? bpCategory(bp.sys, bp.dia) : null;
+  cards.push(`<div class="vital card${cat ? ' status' : ''}" ${cat ? `style="--status:${cat.color}"` : ''}>
+    <div class="label">Blutdruck</div>
+    <div class="value">${bp ? `${bp.sys}/${bp.dia}<span class="unit">mmHg</span>` : '—'}</div>
+    <div class="meta">${bp ? fmtDay(dayMs(bp.date)) : 'keine Daten'}</div>
+    ${cat ? `<span class="badge">${cat.label}</span>` : ''}
+  </div>`);
+
+  cards.push(`<div class="vital card">
+    <div class="label">${pulse?.label || 'Puls'}</div>
+    <div class="value">${pulse ? `<span class="num" data-to="${pulse.v}" data-dec="0">${pulse.v}</span><span class="unit">bpm</span>` : '—'}</div>
+    <div class="meta">${pulse ? fmtDay(dayMs(pulse.date)) : 'keine Daten'}</div>
+  </div>`);
+
+  el.innerHTML = cards.join('');
+  if (!initialRenderDone) {
+    animateIn(el);
+    el.querySelectorAll('.num').forEach(n => countUp(n, Number(n.dataset.to), Number(n.dataset.dec)));
+  }
+}
+
+// kleine Inline-Sparkline (SVG) für die 7-Tage-Kacheln
+function sparkline(values) {
+  const pts = values.filter(v => v != null);
+  if (pts.length < 2) return '';
+  const min = Math.min(...pts), max = Math.max(...pts);
+  const span = max - min || 1;
+  const coords = values.map((v, i) => v == null ? null : [i / (values.length - 1) * 100, 26 - ((v - min) / span) * 22]).filter(Boolean);
+  const line = coords.map((c, i) => `${i ? 'L' : 'M'}${c[0].toFixed(1)},${c[1].toFixed(1)}`).join(' ');
+  const area = `${line} L${coords[coords.length - 1][0].toFixed(1)},28 L${coords[0][0].toFixed(1)},28 Z`;
+  return `<svg class="spark" viewBox="0 0 100 28" preserveAspectRatio="none"><path class="area" d="${area}"/><path d="${line}"/></svg>`;
+}
+
+function nightAsleepHours(night) {
+  return night.segments.filter(s => s.stage !== 'awake').reduce((sum, s) => sum + (s.end - s.start), 0) / 3600000;
+}
+// Nächte zählen zum Tag des Aufwachens (Zeitstempel sind "lokal als UTC", siehe renderSleepChart)
+const nightDay = (night) => dayMs(new Date(night.waketime).toISOString().slice(0, 10));
+
+function renderTrend() {
+  const today = dayMs(todayIso());
+  const days = [...Array(14)].map((_, i) => today - (13 - i) * DAY); // 14 Tage, aufsteigend
+  const avg = (arr) => { const v = arr.filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+  const series = (byDay) => days.map(d => byDay[d] ?? null);
+
+  const stepsByDay = {};
+  for (const s of syncData.steps || []) stepsByDay[dayMs(s.entry_date)] = s.steps;
+  const sleepByDay = {};
+  for (const n of syncData.nights || []) { const h = nightAsleepHours(n); if (h >= 2) sleepByDay[nightDay(n)] = (sleepByDay[nightDay(n)] || 0) + h; }
+  const restByDay = {};
+  for (const p of syncData.pulse || []) if (p.resting_bpm != null) restByDay[dayMs(p.entry_date)] = p.resting_bpm;
+  const weightByDay = {};
+  for (const w of buildMergedWeightSeries()) if (w.weight_kg != null) weightByDay[dayMs(w.entry_date)] = w.weight_kg;
+
+  const fmtHours = (h) => h == null ? '—' : `${Math.floor(h)}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`;
+  const deltaText = (now, prev, fmt, lowerBetter) => {
+    if (now == null || prev == null) return 'Vorwoche: —';
+    const diff = now - prev;
+    const cls = Math.abs(diff) < 1e-9 ? '' : (lowerBetter ? diff < 0 : diff > 0) ? 'neg' : 'pos';
+    return `<span class="delta ${cls}">${diff > 0 ? '+' : diff < 0 ? '−' : '±'}${fmt(Math.abs(diff))}</span> vs. Vorwoche`;
+  };
+
+  const items = [];
+  {
+    const s = series(stepsByDay); const now = avg(s.slice(7)), prev = avg(s.slice(0, 7));
+    items.push({ label: 'Ø Schritte', value: now == null ? '—' : Math.round(now).toLocaleString('de-AT'), unit: '', meta: deltaText(now, prev, v => Math.round(v).toLocaleString('de-AT'), false), spark: sparkline(s) });
+  }
+  {
+    const s = series(sleepByDay); const now = avg(s.slice(7)), prev = avg(s.slice(0, 7));
+    items.push({ label: 'Ø Schlaf', value: fmtHours(now), unit: now == null ? '' : 'h', meta: deltaText(now, prev, fmtHours, false), spark: sparkline(s) });
+  }
+  {
+    const s = series(restByDay); const now = avg(s.slice(7)), prev = avg(s.slice(0, 7));
+    items.push({ label: 'Ø Ruhepuls', value: now == null ? '—' : Math.round(now), unit: now == null ? '' : 'bpm', meta: deltaText(now, prev, v => fmtNum(v, 1), true), spark: sparkline(s) });
+  }
+  {
+    // Gewicht: letzter Wert dieser Woche vs. letzter Wert der Vorwoche
+    const s = series(weightByDay);
+    const lastOf = (arr) => [...arr].reverse().find(v => v != null) ?? null;
+    const now = lastOf(s.slice(7)), prev = lastOf(s.slice(0, 7));
+    items.push({ label: 'Gewicht', value: now == null ? '—' : fmtNum(now), unit: now == null ? '' : 'kg', meta: deltaText(now, prev, v => fmtNum(v) + ' kg', true), spark: sparkline(s) });
+  }
+
+  document.getElementById('trend').innerHTML = items.map(it => `<div class="trend-item card">
+    <div class="label">${it.label}</div>
+    <div class="value">${it.value}<span class="unit">${it.unit}</span></div>
+    <div class="meta">${it.meta}</div>
+    ${it.spark}
+  </div>`).join('');
+}
+
+// Hinweis, wie aktuell die Health-Sync-Daten sind -- fällt der Sync am Handy aus,
+// soll das auffallen statt still mit alten Werten weiterzulaufen
+function renderSyncHint() {
+  const dates = [
+    syncData.steps?.[0]?.entry_date, syncData.pulse?.[0]?.entry_date, syncData.weight?.[0]?.entry_date, syncData.bp?.[0]?.entry_date,
+  ].filter(Boolean).sort();
+  const el = document.getElementById('syncHint');
+  if (!dates.length) { el.innerHTML = ''; return; }
+  const newest = dates[dates.length - 1];
+  const ageDays = Math.round((dayMs(todayIso()) - dayMs(newest)) / DAY);
+  const ageText = ageDays <= 0 ? 'heute' : ageDays === 1 ? 'gestern' : `vor ${ageDays} Tagen`;
+  const stale = ageDays > 2;
+  el.innerHTML = `<div class="notice${stale ? ' warn' : ''}"><span class="dot"></span>
+    <span>Neueste Health-Sync-Daten: <b>${fmtDay(dayMs(newest))}</b> (${ageText})${stale ? ' — Health Sync am Handy prüfen' : ''}</span>
+    <a data-goto="aktivitaet">Sync →</a></div>`;
+  el.querySelector('[data-goto]').addEventListener('click', () => showPage('aktivitaet'));
+}
+
+document.getElementById('goalsSaveBtn').addEventListener('click', async () => {
+  const weight = document.getElementById('goalWeight').value;
+  const bodyFat = document.getElementById('goalBodyFat').value;
+  try {
+    const res = await postJson('/api/goals', {
+      weight_kg: weight === '' ? null : Number(weight),
+      body_fat_pct: bodyFat === '' ? null : Number(bodyFat),
+    });
+    if (res.ok) toast('Ziele gespeichert');
+    else toast(await readError(res), { error: true });
+  } catch (e) {
+    toast('Keine Verbindung', { error: true });
+  }
+  await loadGoals();
+  renderVitals();
+  renderHistoryCharts();
+});
+
+// ── Charts (Zeitachse) ──────────────────────────────────────────────────────
+
+// Fallback-Schrift für alle Chart-Texte (sonst Serifenschrift, solange Google Fonts lädt)
+if (typeof Chart !== 'undefined') Chart.defaults.font.family = "'IBM Plex Mono', ui-monospace, monospace";
+
+const COLORS = { terracotta: '#D24136', honey: '#EB8A3E', teal: '#4A7A6D', stone: '#785A46', biscotti: '#EBB582' };
+let range = (() => { try { return localStorage.getItem('ht-range') || '90'; } catch (e) { return '90'; } })();
+
+function rangeBounds(allDates) {
+  const today = dayMs(todayIso());
+  if (range !== 'all') return { min: today - (Number(range) - 1) * DAY, max: today };
+  const ms = allDates.map(dayMs);
+  if (!ms.length) return { min: today - 29 * DAY, max: today };
+  return { min: Math.min(...ms), max: Math.max(today, ...ms) };
+}
+
+// sinnvolle Tick-Abstände in ganzen Tagen
+function dayStep(spanDays) {
+  const target = spanDays / 5;
+  return [1, 2, 7, 14, 30, 61, 91, 182, 365].find(s => s >= target) || 365;
+}
+
+function chartBox(id) { return document.getElementById(id).parentElement; }
+
+function setEmpty(id, message) {
+  const box = chartBox(id);
+  box.classList.toggle('is-empty', !!message);
+  box.querySelector('.chart-empty').textContent = message || '';
+}
+
+function lineChart(id, datasets, { min, max, legend = true, emptyText = 'Keine Daten im Zeitraum', yGrace = '5%', small = false, extraDatasets = [] } = {}) {
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+  const hasData = datasets.some(ds => ds.data.length);
+  if (!hasData) { setEmpty(id, emptyText); return; }
+  setEmpty(id, null);
+  if (typeof Chart === 'undefined') { setEmpty(id, 'Charts konnten nicht geladen werden (offline?)'); return; }
+
+  const axis = cssVar('--text-dim');
+  const grid = cssVar('--line');
+  const step = dayStep((max - min) / DAY) * DAY;
+  charts[id] = new Chart(document.getElementById(id), {
     type: 'line',
     data: {
-      labels: dates.map(d => d.slice(5)),
       datasets: [
-        { label: 'systolisch', data: systolic, borderColor: '#D24136', spanGaps: true, tension: 0.3, pointRadius: 2 },
-        { label: 'diastolisch', data: diastolic, borderColor: '#EB8A3E', spanGaps: true, tension: 0.3, pointRadius: 2 },
-        { label: 'Ruhepuls', data: pulse, borderColor: '#4A7A6D', spanGaps: true, tension: 0.3, pointRadius: 2 },
-      ]
+        ...datasets.map(ds => ({
+          label: ds.label,
+          data: ds.data,
+          borderColor: ds.color,
+          backgroundColor: ds.fill ? ds.color + '26' : ds.color,
+          fill: ds.fill ? 'start' : false,
+          tension: 0.3,
+          borderWidth: small ? 1.6 : 2,
+          pointRadius: small ? 0 : (ds.data.length > 60 ? 0 : 2.5),
+          pointHoverRadius: 4,
+          pointBackgroundColor: ds.color,
+          borderDash: ds.dashed ? [4, 4] : undefined,
+        })),
+        ...extraDatasets,
+      ],
     },
     options: {
       responsive: true,
-      plugins: { legend: { labels: { color: axisColor(), font: { family: 'IBM Plex Mono', size: 10 } } } },
+      maintainAspectRatio: false,
+      animation: reduceMotion ? false : { duration: 650, easing: 'easeOutCubic' },
+      interaction: { mode: 'nearest', axis: 'x', intersect: false },
+      plugins: {
+        legend: { display: legend, labels: { color: axis, usePointStyle: true, pointStyle: 'circle', boxWidth: 7, boxHeight: 7, font: { family: "'IBM Plex Mono', ui-monospace, monospace", size: 10.5 } } },
+        tooltip: {
+          backgroundColor: cssVar('--text'), titleColor: cssVar('--ink'), bodyColor: cssVar('--ink'),
+          titleFont: { family: "'IBM Plex Mono', ui-monospace, monospace", size: 11 }, bodyFont: { family: "'IBM Plex Mono', ui-monospace, monospace", size: 12 }, padding: 10, cornerRadius: 8,
+          callbacks: { title: (items) => items.length ? fmtDayLong(items[0].parsed.x) : '' },
+        },
+      },
       scales: {
-        x: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
-        y: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } }
-      }
-    }
+        x: {
+          type: 'linear', min, max,
+          display: !small,
+          ticks: { color: axis, font: { size: 10, family: "'IBM Plex Mono', ui-monospace, monospace" }, stepSize: step, maxRotation: 0, autoSkipPadding: 12, callback: (v) => fmtDay(v) },
+          grid: { color: grid, drawTicks: false }, border: { display: false },
+        },
+        y: {
+          grace: yGrace,
+          ticks: { color: axis, font: { size: 10, family: "'IBM Plex Mono', ui-monospace, monospace" }, maxTicksLimit: small ? 3 : 6 },
+          grid: { color: grid, drawTicks: false }, border: { display: false },
+        },
+      },
+    },
   });
+}
+
+const toPoints = (rows, key, min, max) => rows
+  .filter(r => r[key] != null)
+  .map(r => ({ x: dayMs(r.entry_date), y: r[key] }))
+  .filter(p => p.x >= min && p.x <= max)
+  .sort((a, b) => a.x - b.x);
+
+function renderWeightCharts() {
+  const merged = buildMergedWeightSeries();
+  const { min, max } = rangeBounds(merged.map(m => m.entry_date));
+  const weight = toPoints(merged, 'weight_kg', min, max);
+  const extra = goals.weight_kg != null && weight.length ? [{
+    label: `Ziel ${fmtNum(goals.weight_kg)} kg`, data: [{ x: min, y: goals.weight_kg }, { x: max, y: goals.weight_kg }],
+    borderColor: cssVar('--text-dim'), borderDash: [4, 4], borderWidth: 1.2, pointRadius: 0, fill: false,
+  }] : [];
+  lineChart('chartWeight', [{ label: 'Gewicht', data: weight, color: COLORS.honey, fill: true }], { min, max, legend: extra.length > 0, extraDatasets: extra });
+
+  const first = weight[0]?.y, last = weight[weight.length - 1]?.y;
+  document.getElementById('weightSub').textContent = weight.length > 1 ? `${last - first > 0 ? '+' : ''}${fmtNum(last - first)} kg im Zeitraum` : '';
+
+  // Körperzusammensetzung als drei Mini-Charts mit eigener Skala -- in einem
+  // gemeinsamen Chart lagen Fett (~20%), Muskel (~40%) und Wasser (~55%) so weit
+  // auseinander, dass alle drei Linien fast flach aussahen
+  const comp = [
+    ['chartFat', 'compFatVal', 'body_fat_pct', COLORS.terracotta],
+    ['chartMuscle', 'compMuscleVal', 'muscle_pct', COLORS.honey],
+    ['chartWater', 'compWaterVal', 'body_water_pct', COLORS.teal],
+  ];
+  for (const [id, valId, key, color] of comp) {
+    const pts = toPoints(merged, key, min, max);
+    lineChart(id, [{ label: '%', data: pts, color, fill: true }], { min, max, legend: false, small: true, yGrace: '15%', emptyText: 'keine Daten' });
+    const latest = merged.find(m => m[key] != null);
+    document.getElementById(valId).innerHTML = latest ? `${fmtNum(latest[key])}<span class="unit"> %</span>` : '—';
+  }
+}
+
+function renderBpChart() {
+  const series = buildBpSeries();
+  const { min, max } = rangeBounds(series.map(s => s.entry_date));
+  lineChart('chartBP', [
+    { label: 'systolisch', data: toPoints(series, 'systolic', min, max), color: COLORS.terracotta },
+    { label: 'diastolisch', data: toPoints(series, 'diastolic', min, max), color: COLORS.honey },
+    { label: 'Ruhepuls', data: toPoints(series, 'pulse', min, max), color: COLORS.teal },
+  ], { min, max });
+}
+
+const LAB_CHART_COLORS = ['#D24136', '#EB8A3E', '#4A7A6D', '#785A46', '#A9762E', '#9C5A7A', '#5A7A9C', '#6D9C5A'];
+function labColor(testName, allTestNames) {
+  return LAB_CHART_COLORS[allTestNames.indexOf(testName) % LAB_CHART_COLORS.length];
+}
+const labTestNames = () => [...new Set(labs.map(l => l.test_name))].sort();
+
+function renderLabPicker() {
+  const testNames = labTestNames();
+  document.getElementById('testNames').innerHTML = testNames.map(n => `<option value="${escapeHtml(n)}">`).join('');
+
+  // nicht mehr existierende Tests aus der Auswahl entfernen; erste Auswahl
+  // vorbelegen, falls noch nichts gewählt ist
+  selectedLabTests = new Set([...selectedLabTests].filter(t => testNames.includes(t)));
+  if (!selectedLabTests.size && testNames.length) selectedLabTests.add(testNames[0]);
+
+  const picker = document.getElementById('labPicker');
+  picker.innerHTML = testNames.map(n => {
+    const active = selectedLabTests.has(n);
+    return `<button type="button" class="lab-chip${active ? ' active' : ''}" style="--chip-color:${labColor(n, testNames)}" data-test="${escapeHtml(n)}"><span class="lab-chip-dot"></span>${escapeHtml(n)}</button>`;
+  }).join('');
+  picker.querySelectorAll('.lab-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const t = chip.dataset.test;
+      if (selectedLabTests.has(t)) selectedLabTests.delete(t); else selectedLabTests.add(t);
+      chip.classList.toggle('active');
+      renderLabChart();
+    });
+  });
+}
+
+function labDataset(testName, color, min, max) {
+  const rows = labs.filter(l => l.test_name === testName);
+  const unit = rows.find(l => l.unit)?.unit;
+  return {
+    label: unit ? `${testName} (${unit})` : testName,
+    data: rows.map(l => ({ x: dayMs(l.entry_date), y: l.value })).filter(p => p.x >= min && p.x <= max).sort((a, b) => a.x - b.x),
+    color,
+  };
 }
 
 function renderLabChart() {
-  const ctx = document.getElementById('chartLab');
-  if (charts.chartLab) charts.chartLab.destroy();
-  if (!selectedLabTests.size) return;
-
-  const allTestNames = [...new Set(labs.map(l => l.test_name))].sort();
-  const selected = allTestNames.filter(t => selectedLabTests.has(t));
-
-  // gemeinsame Zeitachse über alle ausgewählten Tests -- unterschiedliche
-  // Tests haben unterschiedliche Messtage, spanGaps überbrückt die Lücken
-  const dates = [...new Set(labs.filter(l => selectedLabTests.has(l.test_name)).map(l => l.entry_date))].sort();
-
-  const datasets = selected.map(testName => {
-    const byDate = {};
-    let unit = '';
-    labs.filter(l => l.test_name === testName).forEach(l => { byDate[l.entry_date] = l.value; unit = l.unit || unit; });
-    const color = labColor(testName, allTestNames);
-    return {
-      label: unit ? `${testName} (${unit})` : testName,
-      data: dates.map(d => byDate[d] ?? null),
-      borderColor: color,
-      backgroundColor: color + '33',
-      spanGaps: true,
-      tension: 0.3,
-      pointRadius: 3,
-      fill: false,
-    };
-  });
-
-  charts.chartLab = new Chart(ctx, {
-    type: 'line',
-    data: { labels: dates, datasets },
-    options: {
-      responsive: true,
-      plugins: { legend: { labels: { color: axisColor(), font: { family: 'IBM Plex Mono', size: 10 } } } },
-      scales: {
-        x: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
-        y: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } }
-      }
-    }
-  });
+  const all = labTestNames();
+  const selected = all.filter(t => selectedLabTests.has(t));
+  const { min, max } = rangeBounds(labs.filter(l => selectedLabTests.has(l.test_name)).map(l => l.entry_date));
+  const empty = !labs.length ? 'Noch keine Blutwerte erfasst' : !selected.length ? 'Oben einen oder mehrere Tests wählen' : 'Keine Werte im Zeitraum — Zeitraum vergrößern';
+  lineChart('chartLab', selected.map(t => labDataset(t, labColor(t, all), min, max)), { min, max, emptyText: empty });
 }
 
 const LIPID_TESTS = ['Cholesterin ges.', 'LDL', 'HDL', 'Triglyceride'];
-const LIPID_COLORS = { 'Cholesterin ges.': '#D24136', 'LDL': '#EB8A3E', 'HDL': '#4A7A6D', 'Triglyceride': '#785A46' };
+const LIPID_COLORS = { 'Cholesterin ges.': COLORS.terracotta, 'LDL': COLORS.honey, 'HDL': COLORS.teal, 'Triglyceride': COLORS.stone };
 
 function renderLipidsChart() {
-  const ctx = document.getElementById('chartLipids');
-  if (charts.chartLipids) charts.chartLipids.destroy();
-
   const relevant = labs.filter(l => LIPID_TESTS.includes(l.test_name));
-  const dates = [...new Set(relevant.map(l => l.entry_date))].sort();
-  if (!dates.length) return;
-
-  const datasets = LIPID_TESTS.map(name => {
-    const byDate = {};
-    relevant.filter(l => l.test_name === name).forEach(l => { byDate[l.entry_date] = l.value; });
-    return {
-      label: name,
-      data: dates.map(d => byDate[d] ?? null),
-      borderColor: LIPID_COLORS[name],
-      backgroundColor: LIPID_COLORS[name] + '33',
-      spanGaps: true,
-      tension: 0.3,
-      pointRadius: 3,
-    };
-  }).filter(ds => ds.data.some(v => v != null));
-
-  charts.chartLipids = new Chart(ctx, {
-    type: 'line',
-    data: { labels: dates, datasets },
-    options: {
-      responsive: true,
-      plugins: { legend: { labels: { color: axisColor(), font: { family: 'IBM Plex Mono', size: 10 } } } },
-      scales: {
-        x: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
-        y: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } }
-      }
-    }
+  const { min, max } = rangeBounds(relevant.map(l => l.entry_date));
+  lineChart('chartLipids', LIPID_TESTS.map(t => labDataset(t, LIPID_COLORS[t], min, max)).filter(ds => ds.data.length), {
+    min, max, emptyText: relevant.length ? 'Keine Werte im Zeitraum — Zeitraum vergrößern' : 'Noch keine Blutfette erfasst (Cholesterin ges., LDL, HDL, Triglyceride)',
   });
 }
 
-function renderLog() {
-  const wrap = document.getElementById('logWrap');
-  if (!data.length) { wrap.innerHTML = '<div class="empty">Noch keine Einträge.</div>'; return; }
-  wrap.innerHTML = `<div class="table-scroll"><table class="log"><thead><tr>
-    <th>Datum</th><th>Gewicht</th><th>Fett %</th><th>Muskel %</th><th>Wasser %</th><th>RR</th><th>Puls</th><th>Notiz</th><th></th>
-  </tr></thead><tbody>
-  ${data.map(d => `<tr>
-    <td>${d.entry_date}</td>
-    <td>${d.weight_kg ?? '—'}</td>
-    <td>${d.body_fat_pct ?? '—'}</td>
-    <td>${d.muscle_pct ?? '—'}</td>
-    <td>${d.body_water_pct ?? '—'}</td>
-    <td>${d.bp_systolic && d.bp_diastolic ? `${d.bp_systolic}/${d.bp_diastolic}` : '—'}</td>
-    <td>${d.pulse ?? '—'}</td>
-    <td class="note">${escapeHtml(d.note)}</td>
-    <td><button class="edit" data-date="${d.entry_date}">bearbeiten</button><button class="del" data-date="${d.entry_date}">löschen</button></td>
-  </tr>`).join('')}
-  </tbody></table></div>`;
-
-  wrap.querySelectorAll('.del').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      if (!confirm(`Eintrag vom ${btn.dataset.date} wirklich löschen?`)) return;
-      const res = await fetch(`/api/metrics?date=${btn.dataset.date}`, { method: 'DELETE' }).catch(() => null);
-      if (!res || !res.ok) alert('Löschen fehlgeschlagen' + (res ? ': ' + await readError(res) : ' (keine Verbindung)'));
-      loadData();
-    });
-  });
-
-  wrap.querySelectorAll('.edit').forEach(btn => {
-    btn.addEventListener('click', () => startEditEntry(btn.dataset.date));
-  });
+function renderHistoryCharts() {
+  try { renderWeightCharts(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
+  try { renderBpChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
+  try { renderLipidsChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
+  try { renderLabChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
 }
 
-function pctToKg(pct, weight) {
-  return (pct != null && weight) ? Math.round(pct / 100 * weight * 10) / 10 : '';
-}
-
-function startEditEntry(entryDate) {
-  const row = data.find(d => d.entry_date === entryDate);
-  if (!row) return;
-  const form = document.getElementById('entryForm');
-  form.entry_date.value = row.entry_date;
-  form.weight_kg.value = row.weight_kg ?? '';
-  form.fat_kg.value = pctToKg(row.body_fat_pct, row.weight_kg);
-  form.muscle_kg.value = pctToKg(row.muscle_pct, row.weight_kg);
-  form.water_kg.value = pctToKg(row.body_water_pct, row.weight_kg);
-  form.bp_systolic.value = row.bp_systolic ?? '';
-  form.bp_diastolic.value = row.bp_diastolic ?? '';
-  form.pulse.value = row.pulse ?? '';
-  form.note.value = row.note ?? '';
-  form.entry_date.readOnly = true;
-  document.getElementById('entrySaveBtn').textContent = 'Aktualisieren';
-  document.getElementById('entryCancelBtn').style.display = 'block';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-function resetEntryForm() {
-  const form = document.getElementById('entryForm');
-  form.reset();
-  form.entry_date.readOnly = false;
-  form.entry_date.value = todayIso();
-  document.getElementById('entrySaveBtn').textContent = 'Speichern';
-  document.getElementById('entryCancelBtn').style.display = 'none';
-}
-
-document.getElementById('entryCancelBtn').addEventListener('click', resetEntryForm);
-
-function renderLabLog() {
-  const wrap = document.getElementById('labLogWrap');
-  if (!labs.length) { wrap.innerHTML = '<div class="empty">Noch keine Blutwerte erfasst.</div>'; return; }
-  wrap.innerHTML = `<div class="table-scroll"><table class="log"><thead><tr>
-    <th>Datum</th><th>Test</th><th>Wert</th><th>Einheit</th><th>Notiz</th><th></th>
-  </tr></thead><tbody>
-  ${labs.map(l => `<tr>
-    <td>${l.entry_date}</td>
-    <td>${escapeHtml(l.test_name)}</td>
-    <td>${l.value}</td>
-    <td>${escapeHtml(l.unit)}</td>
-    <td class="note">${escapeHtml(l.note)}</td>
-    <td><button class="edit" data-id="${l.id}">bearbeiten</button><button class="del" data-id="${l.id}">löschen</button></td>
-  </tr>`).join('')}
-  </tbody></table></div>`;
-
-  wrap.querySelectorAll('.del').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const row = labs.find(l => l.id === Number(btn.dataset.id));
-      const label = row ? `${row.test_name} vom ${row.entry_date}` : 'diesen Blutwert';
-      if (!confirm(`${label} wirklich löschen?`)) return;
-      const res = await fetch(`/api/labs?id=${btn.dataset.id}`, { method: 'DELETE' }).catch(() => null);
-      if (!res || !res.ok) alert('Löschen fehlgeschlagen' + (res ? ': ' + await readError(res) : ' (keine Verbindung)'));
-      loadLabs();
-    });
-  });
-
-  wrap.querySelectorAll('.edit').forEach(btn => {
-    btn.addEventListener('click', () => startEditLab(Number(btn.dataset.id)));
-  });
-}
-
-function startEditLab(id) {
-  const row = labs.find(l => l.id === id);
-  if (!row) return;
-  const form = document.getElementById('labForm');
-  form.id.value = row.id;
-  form.entry_date.value = row.entry_date;
-  form.test_name.value = row.test_name;
-  form.value.value = row.value;
-  form.unit.value = row.unit ?? '';
-  form.note.value = row.note ?? '';
-  document.getElementById('labSaveBtn').textContent = 'Blutwert aktualisieren';
-  document.getElementById('labCancelBtn').style.display = 'block';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-function resetLabForm() {
-  const form = document.getElementById('labForm');
-  form.reset();
-  form.id.value = '';
-  form.entry_date.value = todayIso();
-  document.getElementById('labSaveBtn').textContent = 'Blutwert speichern';
-  document.getElementById('labCancelBtn').style.display = 'none';
-}
-
-document.getElementById('labCancelBtn').addEventListener('click', resetLabForm);
-
-document.getElementById('entryForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const fd = new FormData(e.target);
-  const payload = {};
-  for (const [k, v] of fd.entries()) {
-    if (v === '') { payload[k] = null; continue; }
-    payload[k] = (k === 'entry_date' || k === 'note') ? v : Number(v);
-  }
-
-  const statusEl = document.getElementById('formStatus');
-  const saveBtn = document.getElementById('entrySaveBtn');
-
-  // Fettmasse/Muskel/Körperwasser werden in kg eingegeben (so zeigt Samsung
-  // Health sie auch an), intern aber als % vom Körpergewicht gespeichert --
-  // gleiche Einheit wie bei Health Sync und in Charts/Vitals-Karte. Braucht
-  // dafür ein Gewicht: entweder aus demselben Formular, sonst den letzten
-  // bekannten Wert für diesen Tag.
-  const KG_FIELDS = [
-    { kgField: 'fat_kg', pctField: 'body_fat_pct', label: 'Fettmasse' },
-    { kgField: 'muscle_kg', pctField: 'muscle_pct', label: 'Muskel' },
-    { kgField: 'water_kg', pctField: 'body_water_pct', label: 'Körperwasser' },
-  ];
-  const existing = data.find(d => d.entry_date === payload.entry_date);
-  const weightForConversion = payload.weight_kg ?? existing?.weight_kg ?? null;
-  const skipped = [];
-  for (const { kgField, pctField, label } of KG_FIELDS) {
-    const kgValue = payload[kgField];
-    delete payload[kgField];
-    if (kgValue == null) continue;
-    if (weightForConversion) {
-      payload[pctField] = Math.round((kgValue / weightForConversion) * 1000) / 10;
-    } else {
-      skipped.push(label);
-    }
-  }
-  const kgWarning = skipped.length ? ` (${skipped.join(', ')} ohne Gewicht für diesen Tag nicht gespeichert)` : '';
-
-  // Bearbeiten-Modus: Tag komplett ersetzen, damit geleerte Felder wirklich
-  // gelöscht werden (normales Speichern ergänzt nur fehlende Werte)
-  if (e.target.entry_date.readOnly) payload.replace = true;
-
-  statusEl.textContent = 'speichert…';
-  saveBtn.disabled = true;
-  let res = null;
-  try {
-    res = await fetch('/api/metrics', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-  } catch (err) { /* res bleibt null -> keine Verbindung */ }
-  saveBtn.disabled = false;
-  if (!res || !res.ok) {
-    // Eingaben stehen lassen, damit nichts neu getippt werden muss
-    statusEl.textContent = 'Fehler beim Speichern: ' + (res ? await readError(res) : 'keine Verbindung');
-    return;
-  }
-  statusEl.textContent = 'gespeichert.' + kgWarning;
-  setTimeout(() => statusEl.textContent = '', kgWarning ? 4000 : 2000);
-  resetEntryForm();
-  loadData();
-});
-
-document.getElementById('labForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const fd = new FormData(e.target);
-  const id = fd.get('id');
-  const payload = {
-    entry_date: fd.get('entry_date'),
-    test_name: fd.get('test_name'),
-    value: Number(fd.get('value')),
-    unit: fd.get('unit') || null,
-    note: fd.get('note') || null,
-  };
-  if (id) payload.id = Number(id);
-
-  const statusEl = document.getElementById('labFormStatus');
-  const saveBtn = document.getElementById('labSaveBtn');
-  statusEl.textContent = 'speichert…';
-  saveBtn.disabled = true;
-  let res = null;
-  try {
-    res = await fetch('/api/labs', {
-      method: id ? 'PUT' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-  } catch (err) { /* res bleibt null -> keine Verbindung */ }
-  saveBtn.disabled = false;
-  if (!res || !res.ok) {
-    statusEl.textContent = 'Fehler beim Speichern: ' + (res ? await readError(res) : 'keine Verbindung');
-    return;
-  }
-  statusEl.textContent = 'gespeichert.';
-  setTimeout(() => statusEl.textContent = '', 2000);
-  resetLabForm();
-  loadLabs();
-});
-
-let syncData = { steps: [], pulse: [], sleep: [], nights: [], activities: [], weight: [], bp: [] };
-
-async function loadSyncData() {
-  try {
-    syncData = await fetch('/api/sync-data').then(r => r.json());
-  } catch (e) {
-    console.error('Health-Sync-Daten laden fehlgeschlagen', e);
-    document.getElementById('activitiesLogWrap').innerHTML = '<div class="empty">Fehler beim Laden.</div>';
-    return;
-  }
-  renderVitals();
-  renderActivitiesLog();
-  try { renderCharts(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
-  try { renderSyncCharts(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
-}
-
-// einzeln abgesichert: der Schlaf-Zeitstrahl ist reines HTML und soll auch dann
-// erscheinen, wenn Chart.js (CDN) nicht geladen werden konnte
-function renderSyncCharts() {
+function renderActivityCharts() {
   try { renderStepsChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
-  try { renderSleepChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
-  try { renderCombinedBPChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
+  // einzeln abgesichert: der Schlaf-Zeitstrahl ist reines HTML und soll auch dann
+  // erscheinen, wenn Chart.js (CDN) nicht geladen werden konnte
+  try { renderSleepChart(); } catch (e) { console.error('Schlaf-Rendering fehlgeschlagen', e); }
 }
+
+function renderAllCharts() {
+  if (currentPage === 'verlauf') renderHistoryCharts();
+  if (currentPage === 'aktivitaet') renderActivityCharts();
+}
+
+function updateRangeChips() {
+  document.querySelectorAll('#rangePicker .chip').forEach(c => c.classList.toggle('active', c.dataset.range === range));
+}
+document.querySelectorAll('#rangePicker .chip').forEach(c => c.addEventListener('click', () => {
+  range = c.dataset.range;
+  try { localStorage.setItem('ht-range', range); } catch (e) {}
+  updateRangeChips();
+  renderHistoryCharts();
+}));
+updateRangeChips();
 
 function renderStepsChart() {
-  const ctx = document.getElementById('chartSteps');
-  if (charts.chartSteps) charts.chartSteps.destroy();
-  const asc = [...syncData.steps].reverse();
-  if (!asc.length) return;
-  charts.chartSteps = new Chart(ctx, {
-    type: 'bar',
+  const id = 'chartSteps';
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+  const today = dayMs(todayIso());
+  const min = today - 29 * DAY, max = today;
+  const byDay = {};
+  for (const s of syncData.steps || []) byDay[dayMs(s.entry_date)] = s.steps;
+  const bars = Object.entries(byDay).map(([x, y]) => ({ x: Number(x), y })).filter(p => p.x >= min).sort((a, b) => a.x - b.x);
+  if (!bars.length) { setEmpty(id, 'Keine Schrittdaten in den letzten 30 Tagen'); return; }
+  setEmpty(id, null);
+  if (typeof Chart === 'undefined') { setEmpty(id, 'Charts konnten nicht geladen werden (offline?)'); return; }
+
+  // gleitender 7-Tage-Schnitt über die vorhandenen Tage
+  const avg7 = bars.map(p => {
+    const win = Object.entries(byDay).filter(([x]) => Number(x) <= p.x && Number(x) > p.x - 7 * DAY).map(([, v]) => v);
+    return { x: p.x, y: Math.round(win.reduce((a, b) => a + b, 0) / win.length) };
+  });
+  const axis = cssVar('--text-dim');
+  const grid = cssVar('--line');
+  charts[id] = new Chart(document.getElementById(id), {
     data: {
-      labels: asc.map(d => d.entry_date.slice(5)),
-      datasets: [{ label: 'Schritte', data: asc.map(d => d.steps), backgroundColor: '#EB8A3E' }]
+      datasets: [
+        { type: 'line', label: 'Ø 7 Tage', data: avg7, borderColor: COLORS.terracotta, borderWidth: 2, pointRadius: 0, tension: 0.35 },
+        { type: 'bar', label: 'Schritte', data: bars, backgroundColor: COLORS.honey + 'CC', borderRadius: 4, barPercentage: 0.8, categoryPercentage: 1 },
+      ],
     },
     options: {
       responsive: true,
-      plugins: { legend: { display: false } },
+      maintainAspectRatio: false,
+      animation: reduceMotion ? false : { duration: 650, easing: 'easeOutCubic' },
+      interaction: { mode: 'nearest', axis: 'x', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: cssVar('--text'), titleColor: cssVar('--ink'), bodyColor: cssVar('--ink'), padding: 10, cornerRadius: 8,
+          titleFont: { family: "'IBM Plex Mono', ui-monospace, monospace", size: 11 }, bodyFont: { family: "'IBM Plex Mono', ui-monospace, monospace", size: 12 },
+          callbacks: { title: (items) => items.length ? fmtDayLong(items[0].parsed.x) : '', label: (c) => `${c.dataset.label}: ${c.parsed.y.toLocaleString('de-AT')}` },
+        },
+      },
       scales: {
-        x: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } },
-        y: { ticks: { color: axisColor(), font: { size: 10 } }, grid: { color: gridColor() } }
-      }
-    }
+        x: { type: 'linear', min: min - DAY / 2, max: max + DAY / 2, offset: false,
+          ticks: { color: axis, font: { size: 10, family: "'IBM Plex Mono', ui-monospace, monospace" }, stepSize: 7 * DAY, maxRotation: 0, callback: (v) => fmtDay(v) },
+          afterBuildTicks: (scale) => { scale.ticks = [...Array(5)].map((_, i) => ({ value: min + i * 7 * DAY })); },
+          grid: { display: false }, border: { display: false } },
+        y: { beginAtZero: true, ticks: { color: axis, font: { size: 10, family: "'IBM Plex Mono', ui-monospace, monospace" }, maxTicksLimit: 5, callback: (v) => v >= 1000 ? `${v / 1000}k` : v },
+          grid: { color: grid, drawTicks: false }, border: { display: false } },
+      },
+    },
   });
 }
 
 // Die Nacht-Gruppierung (eine Nacht überspannt oft zwei Kalendertage) passiert
 // serverseitig in functions/api/sync-data.js -- syncData.nights kommt fertig
-// gruppiert an, damit es diese Logik nicht doppelt (und potenziell inkonsistent)
-// im Frontend gibt.
+// gruppiert an.
 //
 // Diese Grafik ist reines HTML/CSS statt Chart.js: Chart.js 4.5 (CDN-Build)
-// berechnet bei Floating-Bars auf einer Kategorie-Achse (unser Fall: eine
-// Zeile pro Nacht, Balken-Länge = Zeitspanne) durchgängig width/height = null
-// für jedes Balken-Element -- die Grafik bleibt dadurch komplett leer, ganz
-// ohne Fehlermeldung. Mit eigenem Markup haben wir volle Kontrolle und
-// umgehen den Bug.
+// berechnet bei Floating-Bars auf einer Kategorie-Achse durchgängig
+// width/height = null für jedes Balken-Element -- die Grafik bliebe leer.
 const SLEEP_STAGE_COLORS = { deep: '#785A46', light: '#EB8A3E', rem: '#4A7A6D', awake: '#EBB582', other: '#B79A80' };
 const SLEEP_STAGE_LABELS = { deep: 'Tief', light: 'Leicht', rem: 'REM', awake: 'Wach', other: 'Sonstiges' };
 const SLEEP_X_REFERENCE_HOUR = 18; // Achse beginnt bei 18 Uhr des Bettgeh-Tages, damit alle Nächte an der Uhrzeit ausgerichtet sind
+const SLEEP_MAX_NIGHTS = 30;
 
 function renderSleepChart() {
   const wrap = document.getElementById('chartSleep');
-  const nights = syncData.nights || [];
+  // neueste Nacht oben, ältere darunter (scrollbar)
+  const nights = (syncData.nights || []).slice(-SLEEP_MAX_NIGHTS).reverse();
   if (!nights.length) { wrap.innerHTML = '<div class="empty">Noch keine Schlafdaten synchronisiert.</div>'; return; }
 
   // Health Sync liefert lokale Uhrzeiten ohne Zeitzone, der Server (läuft in UTC)
@@ -1067,7 +1351,7 @@ function renderSleepChart() {
   // formatieren -- mit der Browser-Zeitzone wären alle Schlafzeiten um 1-2 Stunden
   // verschoben (23:00 ins Bett würde als 01:00 angezeigt).
   const fmtTime = (ms) => new Date(ms).toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
-  const fmtDate = (ms) => new Date(ms).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', timeZone: 'UTC' });
+  const fmtDate = (ms) => new Date(ms).toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'UTC' });
 
   // je Nacht ein eigener Referenzpunkt (18 Uhr des Bettgeh-Tages), damit dieselbe
   // Uhrzeit bei jeder Nacht auf denselben x-Wert fällt, auch über Mitternacht hinweg
@@ -1082,7 +1366,8 @@ function renderSleepChart() {
       const stage = ['deep', 'light', 'rem', 'awake'].includes(seg.stage) ? seg.stage : 'other';
       return { start: toXHours(night, seg.start), end: toXHours(night, seg.end), stage, segStart: seg.start, segEnd: seg.end };
     });
-    return { label: `${fmtDate(night.bedtime)} ${fmtTime(night.bedtime)}`, segs };
+    const h = nightAsleepHours(night);
+    return { label: fmtDate(night.waketime), segs, total: `${Math.floor(h)}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}` };
   });
 
   const allX = rows.flatMap(r => r.segs.flatMap(s => [s.start, s.end]));
@@ -1100,32 +1385,264 @@ function renderSleepChart() {
   const legendHtml = Object.keys(SLEEP_STAGE_LABELS).map(key =>
     `<span class="sleep-legend-item"><span class="sleep-legend-dot" style="background:${SLEEP_STAGE_COLORS[key]}"></span>${SLEEP_STAGE_LABELS[key]}</span>`
   ).join('');
-
   const axisHtml = `<div class="sleep-axis">${hourTicks.map(t => `<span class="sleep-axis-tick" style="left:${pct(t.x)}%">${t.label}</span>`).join('')}</div>`;
-
-  const rowsHtml = rows.map(r => `
-    <div class="sleep-row">
+  const rowsHtml = rows.map((r, i) => `
+    <div class="sleep-row" style="--i:${i}">
       <div class="sleep-row-label">${escapeHtml(r.label)}</div>
-      <div class="sleep-track">
+      <div class="sleep-track" style="--i:${i}">
         ${r.segs.map(s => `<div class="sleep-seg" style="left:${pct(s.start)}%; width:${Math.max(pct(s.end) - pct(s.start), 0.3)}%; background:${SLEEP_STAGE_COLORS[s.stage]}" title="${SLEEP_STAGE_LABELS[s.stage]}: ${fmtTime(s.segStart)} – ${fmtTime(s.segEnd)}"></div>`).join('')}
       </div>
+      <div class="sleep-row-total" title="Schlafdauer ohne Wachphasen">${r.total}</div>
     </div>`).join('');
 
-  wrap.innerHTML = `<div class="sleep-legend">${legendHtml}</div>${axisHtml}<div class="sleep-rows">${rowsHtml}</div>`;
+  wrap.innerHTML = `<div class="sleep-legend">${legendHtml}</div>${axisHtml}<div class="sleep-rows stagger-x">${rowsHtml}</div>`;
 }
+
+// ── Logs + Formulare ────────────────────────────────────────────────────────
+
+function renderLog() {
+  const wrap = document.getElementById('logWrap');
+  document.getElementById('logCount').textContent = data.length ? `(${data.length})` : '';
+  if (!data.length) { wrap.innerHTML = '<div class="empty">Noch keine Einträge.</div>'; return; }
+  wrap.innerHTML = `<div class="table-scroll"><table class="log"><thead><tr>
+    <th>Datum</th><th>Gewicht</th><th>Fett %</th><th>Muskel %</th><th>Wasser %</th><th>RR</th><th>Puls</th><th>Notiz</th><th></th>
+  </tr></thead><tbody>
+  ${data.map(d => `<tr>
+    <td>${fmtDay(dayMs(d.entry_date))}.${d.entry_date.slice(2, 4)}</td>
+    <td>${d.weight_kg ?? '—'}</td>
+    <td>${d.body_fat_pct ?? '—'}</td>
+    <td>${d.muscle_pct ?? '—'}</td>
+    <td>${d.body_water_pct ?? '—'}</td>
+    <td>${d.bp_systolic && d.bp_diastolic ? `${d.bp_systolic}/${d.bp_diastolic}` : '—'}</td>
+    <td>${d.pulse ?? '—'}</td>
+    <td class="note">${escapeHtml(d.note)}</td>
+    <td><button class="edit" data-date="${d.entry_date}">bearbeiten</button><button class="del" data-date="${d.entry_date}">löschen</button></td>
+  </tr>`).join('')}
+  </tbody></table></div>`;
+
+  wrap.querySelectorAll('.del').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm(`Eintrag vom ${fmtDay(dayMs(btn.dataset.date))} wirklich löschen?`)) return;
+      const res = await api(`/api/metrics?date=${btn.dataset.date}`, { method: 'DELETE' }).catch(() => null);
+      if (!res || !res.ok) toast('Löschen fehlgeschlagen' + (res ? ': ' + await readError(res) : ' (keine Verbindung)'), { error: true });
+      else toast('Eintrag gelöscht');
+      await loadData();
+      renderAfterVitalsChange();
+    });
+  });
+  wrap.querySelectorAll('.edit').forEach(btn => btn.addEventListener('click', () => startEditEntry(btn.dataset.date)));
+}
+
+function pctToKg(pct, weight) {
+  return (pct != null && weight) ? Math.round(pct / 100 * weight * 10) / 10 : '';
+}
+
+function setSaveLabel(btn, text) { btn.querySelector('.label').textContent = text; }
+
+function startEditEntry(entryDate) {
+  const row = data.find(d => d.entry_date === entryDate);
+  if (!row) return;
+  const form = document.getElementById('entryForm');
+  form.entry_date.value = row.entry_date;
+  form.weight_kg.value = row.weight_kg ?? '';
+  form.fat_kg.value = pctToKg(row.body_fat_pct, row.weight_kg);
+  form.muscle_kg.value = pctToKg(row.muscle_pct, row.weight_kg);
+  form.water_kg.value = pctToKg(row.body_water_pct, row.weight_kg);
+  form.bp_systolic.value = row.bp_systolic ?? '';
+  form.bp_diastolic.value = row.bp_diastolic ?? '';
+  form.pulse.value = row.pulse ?? '';
+  form.note.value = row.note ?? '';
+  form.entry_date.readOnly = true;
+  form.querySelector('.form-hint').textContent = 'Bearbeiten: geleerte Felder werden gelöscht.';
+  setSaveLabel(document.getElementById('entrySaveBtn'), 'Aktualisieren');
+  document.getElementById('entryCancelBtn').style.display = 'block';
+  showPage('erfassen');
+  showPanel('vitals');
+  form.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+}
+
+function resetEntryForm() {
+  const form = document.getElementById('entryForm');
+  form.reset();
+  form.entry_date.readOnly = false;
+  form.entry_date.value = todayIso();
+  form.querySelector('.form-hint').textContent = 'Leere Felder bleiben unverändert — so lassen sich Werte über den Tag nachtragen.';
+  setSaveLabel(document.getElementById('entrySaveBtn'), 'Speichern');
+  document.getElementById('entryCancelBtn').style.display = 'none';
+}
+document.getElementById('entryCancelBtn').addEventListener('click', resetEntryForm);
+
+function renderLabLog() {
+  const wrap = document.getElementById('labLogWrap');
+  document.getElementById('labLogCount').textContent = labs.length ? `(${labs.length})` : '';
+  if (!labs.length) { wrap.innerHTML = '<div class="empty">Noch keine Blutwerte erfasst.</div>'; return; }
+  wrap.innerHTML = `<div class="table-scroll"><table class="log"><thead><tr>
+    <th>Datum</th><th>Test</th><th>Wert</th><th>Einheit</th><th>Notiz</th><th></th>
+  </tr></thead><tbody>
+  ${labs.map(l => `<tr>
+    <td>${fmtDay(dayMs(l.entry_date))}.${l.entry_date.slice(2, 4)}</td>
+    <td>${escapeHtml(l.test_name)}</td>
+    <td>${fmtNum(l.value, String(l.value).split('.')[1]?.length || 0)}</td>
+    <td>${escapeHtml(l.unit)}</td>
+    <td class="note">${escapeHtml(l.note)}</td>
+    <td><button class="edit" data-id="${l.id}">bearbeiten</button><button class="del" data-id="${l.id}">löschen</button></td>
+  </tr>`).join('')}
+  </tbody></table></div>`;
+
+  wrap.querySelectorAll('.del').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = labs.find(l => l.id === Number(btn.dataset.id));
+      const label = row ? `${row.test_name} vom ${fmtDay(dayMs(row.entry_date))}` : 'diesen Blutwert';
+      if (!confirm(`${label} wirklich löschen?`)) return;
+      const res = await api(`/api/labs?id=${btn.dataset.id}`, { method: 'DELETE' }).catch(() => null);
+      if (!res || !res.ok) toast('Löschen fehlgeschlagen' + (res ? ': ' + await readError(res) : ' (keine Verbindung)'), { error: true });
+      else toast('Blutwert gelöscht');
+      await loadLabs();
+      renderAfterLabsChange();
+    });
+  });
+  wrap.querySelectorAll('.edit').forEach(btn => btn.addEventListener('click', () => startEditLab(Number(btn.dataset.id))));
+}
+
+function startEditLab(id) {
+  const row = labs.find(l => l.id === id);
+  if (!row) return;
+  const form = document.getElementById('labForm');
+  form.id.value = row.id;
+  form.entry_date.value = row.entry_date;
+  form.test_name.value = row.test_name;
+  form.value.value = row.value;
+  form.unit.value = row.unit ?? '';
+  form.note.value = row.note ?? '';
+  setSaveLabel(document.getElementById('labSaveBtn'), 'Blutwert aktualisieren');
+  document.getElementById('labCancelBtn').style.display = 'block';
+  showPage('erfassen');
+  showPanel('labs');
+  form.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+}
+
+function resetLabForm() {
+  const form = document.getElementById('labForm');
+  form.reset();
+  form.id.value = '';
+  form.entry_date.value = todayIso();
+  setSaveLabel(document.getElementById('labSaveBtn'), 'Blutwert speichern');
+  document.getElementById('labCancelBtn').style.display = 'none';
+}
+document.getElementById('labCancelBtn').addEventListener('click', resetLabForm);
+
+// Einheit automatisch vorschlagen, wenn ein bekannter Test gewählt wird
+document.querySelector('#labForm [name=test_name]').addEventListener('change', (e) => {
+  const unitInput = document.querySelector('#labForm [name=unit]');
+  if (unitInput.value) return;
+  const known = labs.find(l => l.test_name === e.target.value.trim() && l.unit);
+  if (known) unitInput.value = known.unit;
+});
+
+document.getElementById('entryForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  if (!form.entry_date.value) { toast('Bitte ein Datum wählen', { error: true }); return; }
+  const fd = new FormData(form);
+  const payload = {};
+  for (const [k, v] of fd.entries()) {
+    if (v === '') { payload[k] = null; continue; }
+    payload[k] = (k === 'entry_date' || k === 'note') ? v : Number(v);
+  }
+
+  // Fettmasse/Muskel/Körperwasser werden in kg eingegeben (so zeigt Samsung
+  // Health sie auch an), intern aber als % vom Körpergewicht gespeichert --
+  // gleiche Einheit wie bei Health Sync und in Charts/Kacheln. Braucht dafür ein
+  // Gewicht: entweder aus demselben Formular, sonst den gespeicherten Wert für
+  // diesen Tag.
+  const KG_FIELDS = [
+    { kgField: 'fat_kg', pctField: 'body_fat_pct', label: 'Fettmasse' },
+    { kgField: 'muscle_kg', pctField: 'muscle_pct', label: 'Muskel' },
+    { kgField: 'water_kg', pctField: 'body_water_pct', label: 'Körperwasser' },
+  ];
+  const existing = data.find(d => d.entry_date === payload.entry_date);
+  const weightForConversion = payload.weight_kg ?? existing?.weight_kg ?? null;
+  const skipped = [];
+  for (const { kgField, pctField, label } of KG_FIELDS) {
+    const kgValue = payload[kgField];
+    delete payload[kgField];
+    if (kgValue == null) continue;
+    if (weightForConversion) payload[pctField] = Math.round((kgValue / weightForConversion) * 1000) / 10;
+    else skipped.push(label);
+  }
+  const hasValue = Object.entries(payload).some(([k, v]) => k !== 'entry_date' && v != null);
+  if (!hasValue && !form.entry_date.readOnly) { toast('Bitte mindestens einen Wert eintragen', { error: true }); return; }
+
+  // Bearbeiten-Modus: Tag komplett ersetzen, damit geleerte Felder wirklich
+  // gelöscht werden (normales Speichern ergänzt nur fehlende Werte)
+  if (form.entry_date.readOnly) payload.replace = true;
+
+  const saveBtn = document.getElementById('entrySaveBtn');
+  setBusy(saveBtn, true);
+  let res = null;
+  try { res = await postJson('/api/metrics', payload); } catch (err) { /* res bleibt null -> keine Verbindung */ }
+  setBusy(saveBtn, false);
+  if (!res || !res.ok) {
+    // Eingaben stehen lassen, damit nichts neu getippt werden muss
+    toast('Nicht gespeichert: ' + (res ? await readError(res) : 'keine Verbindung'), { error: true });
+    return;
+  }
+  if (skipped.length) toast(`Gespeichert — ${skipped.join(', ')} ohne Gewicht für diesen Tag nicht übernommen`, { ms: 5000 });
+  else toast('Gespeichert');
+  resetEntryForm();
+  await loadData();
+  renderAfterVitalsChange();
+});
+
+document.getElementById('labForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const id = fd.get('id');
+  if (!fd.get('entry_date') || !String(fd.get('test_name')).trim() || fd.get('value') === '') {
+    toast('Bitte Datum, Test und Wert ausfüllen', { error: true });
+    return;
+  }
+  const payload = {
+    entry_date: fd.get('entry_date'),
+    test_name: fd.get('test_name'),
+    value: Number(fd.get('value')),
+    unit: fd.get('unit') || null,
+    note: fd.get('note') || null,
+  };
+  if (id) payload.id = Number(id);
+
+  const saveBtn = document.getElementById('labSaveBtn');
+  setBusy(saveBtn, true);
+  let res = null;
+  try { res = await postJson('/api/labs', payload, id ? 'PUT' : 'POST'); } catch (err) { /* res bleibt null -> keine Verbindung */ }
+  setBusy(saveBtn, false);
+  if (!res || !res.ok) {
+    toast('Nicht gespeichert: ' + (res ? await readError(res) : 'keine Verbindung'), { error: true });
+    return;
+  }
+  toast(id ? 'Blutwert aktualisiert' : 'Blutwert gespeichert');
+  // Datum und Einheit stehen lassen -- meist kommen mehrere Werte vom selben Befund
+  const keepDate = payload.entry_date;
+  resetLabForm();
+  if (!id) e.target.entry_date.value = keepDate;
+  await loadLabs();
+  renderAfterLabsChange();
+});
 
 function renderActivitiesLog() {
   const wrap = document.getElementById('activitiesLogWrap');
-  if (!syncData.activities.length) { wrap.innerHTML = '<div class="empty">Noch keine Aktivitäten synchronisiert.</div>'; return; }
+  const acts = syncData.activities || [];
+  document.getElementById('activitiesCount').textContent = acts.length ? `(${acts.length})` : '';
+  if (!acts.length) { wrap.innerHTML = '<div class="empty">Noch keine Aktivitäten synchronisiert.</div>'; return; }
   wrap.innerHTML = `<div class="table-scroll"><table class="log"><thead><tr>
     <th>Datum</th><th>Zeit</th><th>Typ</th><th>Dauer</th><th>Distanz</th><th>Kalorien</th><th>Ø Puls</th><th>Max Puls</th>
   </tr></thead><tbody>
-  ${syncData.activities.map(a => `<tr>
-    <td>${a.entry_date}</td>
-    <td>${a.start_time ?? ''}</td>
+  ${acts.map(a => `<tr>
+    <td>${fmtDay(dayMs(a.entry_date))}</td>
+    <td>${escapeHtml((a.start_time || '').slice(0, 5))}</td>
     <td>${escapeHtml(a.activity_type) || '—'}</td>
     <td>${a.active_seconds != null ? Math.round(a.active_seconds / 60) + ' min' : '—'}</td>
-    <td>${a.distance_km != null ? a.distance_km.toFixed(2) + ' km' : '—'}</td>
+    <td>${a.distance_km != null ? fmtNum(a.distance_km, 2) + ' km' : '—'}</td>
     <td>${a.calories != null ? Math.round(a.calories) + ' kcal' : '—'}</td>
     <td>${a.avg_hr != null ? Math.round(a.avg_hr) : '—'}</td>
     <td>${a.max_hr != null ? Math.round(a.max_hr) : '—'}</td>
@@ -1133,11 +1650,22 @@ function renderActivitiesLog() {
   </tbody></table></div>`;
 }
 
-document.getElementById('syncBtn').addEventListener('click', async () => {
+// Automatischer Sync beim Öffnen der App (höchstens alle 3 Stunden pro Gerät).
+// Ein Cloudflare-Cron (cron-worker/) wäre die bessere Lösung, aber alle 5
+// Cron-Plätze des Gratis-Tarifs sind durch andere Apps belegt.
+const AUTO_SYNC_INTERVAL_MS = 3 * 3600 * 1000;
+function autoSyncDue() {
+  try { return Date.now() - Number(localStorage.getItem('ht-last-auto-sync') || 0) > AUTO_SYNC_INTERVAL_MS; } catch (e) { return false; }
+}
+
+let syncRunning = false;
+async function runSync({ quiet = false } = {}) {
+  if (syncRunning) return;
+  syncRunning = true;
   const btn = document.getElementById('syncBtn');
   const statusEl = document.getElementById('syncStatus');
-  btn.disabled = true;
-  statusEl.textContent = 'synchronisiert…';
+  setBusy(btn, true);
+  statusEl.textContent = quiet ? 'automatischer Sync läuft…' : 'synchronisiert…';
   const LABELS = { puls: 'Puls', schritte: 'Schritte', schlaf: 'Schlaf', aktivitaeten: 'Aktivitäten', gewicht: 'Gewicht', blutdruck: 'Blutdruck' };
   const totals = {};
   const problems = {};
@@ -1146,7 +1674,7 @@ document.getElementById('syncBtn').addEventListener('click', async () => {
     // Limit) und meldet den Rest als "remaining" -- so lange wiederholen, bis
     // alles da ist (mit Obergrenze, falls etwas hängt)
     for (let round = 1; round <= 20; round++) {
-      const res = await fetch('/api/sync', { method: 'POST' });
+      const res = await api('/api/sync', { method: 'POST' });
       const result = await res.json().catch(() => ({}));
       if (!res.ok) { statusEl.textContent = 'Fehler: ' + (result.error || res.status); break; }
       for (const [key, v] of Object.entries(result.summary)) {
@@ -1157,21 +1685,57 @@ document.getElementById('syncBtn').addEventListener('click', async () => {
       if (!result.remaining) break;
       statusEl.textContent = `synchronisiert… noch ${result.remaining} Dateien`;
     }
-    const parts = Object.keys(LABELS).filter(k => k in totals || k in problems).map(k =>
-      problems[k] ? `${LABELS[k]}: ${problems[k]}` : `${LABELS[k]}: +${totals[k]}`);
-    if (parts.length) statusEl.textContent = parts.join(' · ');
-    await loadSyncData();
+    const newFiles = Object.values(totals).reduce((a, b) => a + b, 0);
+    const parts = Object.keys(LABELS).filter(k => k in problems).map(k => `${LABELS[k]}: ${problems[k]}`);
+    const time = new Date().toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' });
+    statusEl.textContent = `${quiet ? 'Automatisch' : 'Zuletzt'} ${time}: ` + (newFiles ? `${newFiles} neue Dateien` : 'alles aktuell') + (parts.length ? ' · ' + parts.join(' · ') : '');
+    if (!quiet && !parts.length) toast(newFiles ? `${newFiles} neue Dateien importiert` : 'Alles aktuell');
+    if (quiet && newFiles) toast(`Health Sync: ${newFiles} neue Dateien`);
+    try { localStorage.setItem('ht-last-auto-sync', String(Date.now())); } catch (e) {}
+    if (newFiles || !quiet) {
+      await loadSyncData();
+      renderAfterSyncChange();
+    }
   } catch (e) {
     statusEl.textContent = 'Fehler: ' + e.message;
   }
-  btn.disabled = false;
-});
+  setBusy(btn, false);
+  syncRunning = false;
+}
+
+document.getElementById('syncBtn').addEventListener('click', () => runSync());
+
+// ── Rendering nach Änderungen ──────────────────────────────────────────────
+
+function renderAfterVitalsChange() {
+  renderVitals(); renderTrend(); renderLog();
+  if (currentPage === 'verlauf') renderHistoryCharts();
+}
+function renderAfterLabsChange() {
+  renderLabPicker(); renderLabLog();
+  if (currentPage === 'verlauf') renderHistoryCharts();
+}
+function renderAfterSyncChange() {
+  renderVitals(); renderTrend(); renderSyncHint(); renderActivitiesLog();
+  renderAllCharts();
+}
 
 (async function init() {
-  // parallel + jeweils intern try/catch (siehe loadGoals/loadData/loadLabs/
-  // loadSyncData) -- ein Fehler bei einer Quelle (z.B. Health Sync) darf die
-  // anderen Bereiche des Dashboards nicht blockieren.
+  // parallel + jeweils intern try/catch -- ein Fehler bei einer Quelle (z.B.
+  // Health Sync) darf die anderen Bereiche nicht blockieren
+  showPage(location.hash.slice(1) || 'uebersicht', { updateHash: false });
   await Promise.allSettled([loadGoals(), loadData(), loadLabs(), loadSyncData()]);
+  renderVitals();
+  renderTrend();
+  renderSyncHint();
+  renderLog();
+  renderLabPicker();
+  renderLabLog();
+  renderActivitiesLog();
+  renderAllCharts();
+  animateIn(document.getElementById('trend'));
+  initialRenderDone = true;
+  if (autoSyncDue()) runSync({ quiet: true });
 })();
 
 if ('serviceWorker' in navigator) {

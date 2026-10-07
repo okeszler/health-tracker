@@ -6,9 +6,9 @@
 // Laborwerte sind frei benannt (beliebiger Testname + Einheit), deshalb keine
 // festen Wertebereiche -- nur Grundplausibilität (Datum, endliche Zahl).
 function validateLab({ entry_date, test_name, value }) {
-  if (!entry_date || !/^\d{4}-\d{2}-\d{2}$/.test(entry_date)) return "entry_date fehlt oder ungültig (YYYY-MM-DD)";
-  if (!test_name || !String(test_name).trim()) return "test_name fehlt";
-  if (typeof value !== "number" || !isFinite(value)) return "value muss eine Zahl sein";
+  if (!entry_date || !/^\d{4}-\d{2}-\d{2}$/.test(entry_date)) return "Datum fehlt oder ist ungültig";
+  if (!test_name || !String(test_name).trim()) return "Testname fehlt";
+  if (typeof value !== "number" || !isFinite(value)) return "Wert muss eine Zahl sein";
   return null;
 }
 

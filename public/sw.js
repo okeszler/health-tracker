@@ -2,7 +2,7 @@
 // App-Shell-Offline-Fallback. /api/* wird nie gecacht, damit Vitals/Blutwerte/
 // Health-Sync-Daten immer frisch vom Server kommen.
 
-const CACHE = "health-tracker-shell-v2";
+const CACHE = "health-tracker-shell-v3";
 const SHELL_URLS = [
   "/",
   "/manifest.json",
