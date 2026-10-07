@@ -67,14 +67,15 @@ CREATE TABLE IF NOT EXISTS sync_files (
 );
 
 -- Einzelmessungen; Tageswerte werden erst beim Lesen aggregiert
--- (siehe functions/api/sync-data.js)
+-- (siehe functions/api/sync-data.js). Bewusst kein extra Datums-Index: der
+-- UNIQUE-Index beginnt mit entry_date, jeder weitere Index kostet pro Zeile
+-- einen zusätzlichen D1-Schreibvorgang.
 CREATE TABLE IF NOT EXISTS sync_steps_readings (
   entry_date TEXT NOT NULL,
   reading_time TEXT NOT NULL,
   steps INTEGER NOT NULL,
   UNIQUE(entry_date, reading_time, steps)
 );
-CREATE INDEX IF NOT EXISTS idx_sync_steps_readings_date ON sync_steps_readings(entry_date);
 
 CREATE TABLE IF NOT EXISTS sync_pulse_readings (
   entry_date TEXT NOT NULL,
@@ -82,7 +83,6 @@ CREATE TABLE IF NOT EXISTS sync_pulse_readings (
   bpm INTEGER NOT NULL,
   UNIQUE(entry_date, reading_time, bpm)
 );
-CREATE INDEX IF NOT EXISTS idx_sync_pulse_readings_date ON sync_pulse_readings(entry_date);
 
 CREATE TABLE IF NOT EXISTS sync_sleep_readings (
   entry_date TEXT NOT NULL,
@@ -91,7 +91,6 @@ CREATE TABLE IF NOT EXISTS sync_sleep_readings (
   stage TEXT,
   UNIQUE(entry_date, reading_time, duration_seconds, stage)
 );
-CREATE INDEX IF NOT EXISTS idx_sync_sleep_readings_date ON sync_sleep_readings(entry_date);
 
 -- Waage (Samsung Health): Muskel/Wasser beim Import von kg in % umgerechnet
 CREATE TABLE IF NOT EXISTS sync_weight_readings (
@@ -103,7 +102,6 @@ CREATE TABLE IF NOT EXISTS sync_weight_readings (
   body_water_pct REAL,
   UNIQUE(entry_date, reading_time, weight_kg)
 );
-CREATE INDEX IF NOT EXISTS idx_sync_weight_readings_date ON sync_weight_readings(entry_date);
 
 -- Blutdruck: Einzelmessungen, mehrere pro Tag möglich
 CREATE TABLE IF NOT EXISTS sync_bp_readings (
@@ -135,3 +133,19 @@ CREATE TABLE IF NOT EXISTS sync_activities (
   UNIQUE(entry_date, start_time, activity_type)
 );
 CREATE INDEX IF NOT EXISTS idx_sync_activities_date ON sync_activities(entry_date);
+
+-- Fingerabdruck pro Kategorie+Tag: nur Tage mit geändertem Inhalt werden beim
+-- Sync neu geschrieben (Health Sync liefert dieselben Tage in vielen Dateien)
+CREATE TABLE IF NOT EXISTS sync_day_hashes (
+  category TEXT NOT NULL,
+  entry_date TEXT NOT NULL,
+  hash TEXT NOT NULL,
+  PRIMARY KEY (category, entry_date)
+) WITHOUT ROWID;
+
+-- Schreibvorgänge des Syncs pro Tag (UTC) -- Budget schützt das gemeinsame
+-- D1-Limit des Cloudflare-Kontos
+CREATE TABLE IF NOT EXISTS sync_usage (
+  day TEXT PRIMARY KEY,
+  rows_written INTEGER NOT NULL DEFAULT 0
+) WITHOUT ROWID;
