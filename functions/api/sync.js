@@ -41,6 +41,12 @@ export async function onRequestGet({ env }) {
   });
 }
 
+// Cloudflare begrenzt externe Anfragen pro Aufruf (Free-Plan: 50). Token +
+// 6 Ordnersuchen + 6 Listings = 13, bleiben ~37 -- mit Puffer max. 30 Downloads
+// pro Aufruf. Liegen mehr neue Dateien vor (z.B. nach Wochen ohne Sync), meldet
+// die Antwort "remaining" > 0 und das Frontend ruft einfach erneut auf.
+const MAX_DOWNLOADS_PER_RUN = 30;
+
 export async function onRequestPost({ env }) {
   let token;
   try {
@@ -50,19 +56,22 @@ export async function onRequestPost({ env }) {
   }
 
   const summary = {};
+  const budget = { left: MAX_DOWNLOADS_PER_RUN };
+  let remaining = 0;
 
   for (const cat of CATEGORIES) {
     try {
-      summary[cat.key] = await syncCategory(env, token, cat);
+      summary[cat.key] = await syncCategory(env, token, cat, budget);
+      remaining += summary[cat.key].remaining || 0;
     } catch (err) {
       summary[cat.key] = { error: String(err.message || err) };
     }
   }
 
-  return Response.json({ ok: true, summary });
+  return Response.json({ ok: true, summary, remaining });
 }
 
-async function syncCategory(env, token, cat) {
+async function syncCategory(env, token, cat, budget) {
   const folderId = await findDriveFolderId(token, cat.folder);
   if (!folderId) {
     return { skipped: true, reason: "Ordner nicht gefunden oder nicht mit dem Service Account geteilt" };
@@ -80,7 +89,12 @@ async function syncCategory(env, token, cat) {
   const newFiles = files.filter((f) => !knownIds.has(f.id));
   if (!newFiles.length) return { newFiles: 0 };
 
-  for (const file of newFiles) {
+  // newFiles ist nach modifiedTime sortiert (listDriveFiles) -- ältere zuerst,
+  // damit bei Aufteilung auf mehrere Aufrufe die neueste Datei pro Tag gewinnt
+  const batchFiles = newFiles.slice(0, Math.max(budget.left, 0));
+  budget.left -= batchFiles.length;
+
+  for (const file of batchFiles) {
     const text = await downloadDriveFile(token, file.id);
     const rows = parseCsv(text);
     await importRows(env, cat.key, rows);
@@ -91,7 +105,7 @@ async function syncCategory(env, token, cat) {
       .run();
   }
 
-  return { newFiles: newFiles.length };
+  return { newFiles: batchFiles.length, remaining: newFiles.length - batchFiles.length };
 }
 
 async function importRows(env, categoryKey, rows) {
@@ -116,10 +130,14 @@ async function importRows(env, categoryKey, rows) {
 async function replaceByDate(env, table, dateColumn, rows) {
   const dates = [...new Set(rows.map((r) => r._date))];
   if (!dates.length) return;
-  const placeholders = dates.map(() => "?").join(",");
-  await env.DB.prepare(`DELETE FROM ${table} WHERE ${dateColumn} IN (${placeholders})`)
-    .bind(...dates)
-    .run();
+  // D1: max. 100 Parameter pro Query -- große Backfill-Dateien (>100 Tage) in Blöcken löschen
+  const statements = [];
+  for (let i = 0; i < dates.length; i += 90) {
+    const chunk = dates.slice(i, i + 90);
+    const placeholders = chunk.map(() => "?").join(",");
+    statements.push(env.DB.prepare(`DELETE FROM ${table} WHERE ${dateColumn} IN (${placeholders})`).bind(...chunk));
+  }
+  await env.DB.batch(statements);
 }
 
 async function importPuls(env, rows) {

@@ -2,7 +2,7 @@
 // App-Shell-Offline-Fallback. /api/* wird nie gecacht, damit Vitals/Blutwerte/
 // Health-Sync-Daten immer frisch vom Server kommen.
 
-const CACHE = "health-tracker-shell-v1";
+const CACHE = "health-tracker-shell-v2";
 const SHELL_URLS = [
   "/",
   "/manifest.json",
@@ -37,8 +37,12 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(request)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((cache) => cache.put("/", copy));
+          // nur die echte App cachen -- nicht die Login-Seite (abgelaufene Session)
+          // oder Fehlerseiten, sonst zeigt die App offline genau die an
+          if (res.ok && !res.headers.get("X-Login-Page")) {
+            const copy = res.clone();
+            caches.open(CACHE).then((cache) => cache.put("/", copy));
+          }
           return res;
         })
         .catch(() => caches.match("/"))
@@ -51,8 +55,10 @@ self.addEventListener("fetch", (event) => {
       (cached) =>
         cached ||
         fetch(request).then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((cache) => cache.put(request, copy));
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((cache) => cache.put(request, copy));
+          }
           return res;
         })
     )

@@ -15,7 +15,8 @@
 <meta name="apple-mobile-web-app-title" content="Vitals">
 <script>
   (function() {
-    var saved = localStorage.getItem('ht-theme');
+    var saved = null;
+    try { saved = localStorage.getItem('ht-theme'); } catch (e) {}
     var theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
   })();
@@ -41,6 +42,7 @@
     --violet: #785A46;
   }
   html[data-theme="dark"] {
+    color-scheme: dark; /* native Elemente (Datumsfeld, Scrollbars) ebenfalls dunkel */
     --ink: #1C140F;
     --surface: #241A13;
     --surface-2: #2E2117;
@@ -86,6 +88,7 @@
   .vital .value { font-family: 'IBM Plex Mono', monospace; font-size: 24px; font-weight: 500; margin-top: 4px; color: var(--text); }
   .vital .value .unit { font-size: 12px; color: var(--text-dim); margin-left: 3px; }
   .vital .delta { font-size: 11px; margin-top: 3px; font-family: 'IBM Plex Mono', monospace; }
+  .delta { color: var(--text-dim); }
   .delta.pos { color: var(--coral); }
   .delta.neg { color: var(--teal); }
 
@@ -155,6 +158,10 @@
   table.log tr:hover { background: var(--surface-2); }
   table.log button.del { background: none; border: none; color: var(--coral); cursor: pointer; font-family: inherit; font-size: 12px; }
   table.log td.note { color: var(--text-dim); font-family: 'IBM Plex Sans', sans-serif; font-size: 12px; }
+
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table-scroll table.log td, .table-scroll table.log th { white-space: nowrap; }
+  .table-scroll table.log td.note { white-space: normal; min-width: 140px; }
 
   .empty { color: var(--text-dim); font-size: 13px; padding: 14px 0; }
   .status { font-size: 12px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; margin-top: 8px; min-height: 16px; }
@@ -331,6 +338,26 @@ function currentTheme() { return document.documentElement.getAttribute('data-the
 
 function updateThemeToggleIcon() {
   document.getElementById('themeToggle').textContent = currentTheme() === 'dark' ? '☀️' : '🌙';
+  document.querySelector('meta[name=theme-color]').setAttribute('content', currentTheme() === 'dark' ? '#1C140F' : '#D24136');
+}
+
+function applyTheme(theme) {
+  if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  else document.documentElement.removeAttribute('data-theme');
+  updateThemeToggleIcon();
+  renderAllCharts();
+}
+
+// Datum im lokalen Kalender (toISOString() wäre UTC -- zwischen 0 und 2 Uhr
+// stünde im Formular sonst noch das gestrige Datum)
+function todayIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+async function readError(res) {
+  const body = await res.json().catch(() => ({}));
+  return body.error || `HTTP ${res.status}`;
 }
 
 function renderAllCharts() {
@@ -340,21 +367,33 @@ function renderAllCharts() {
   try { renderSyncCharts(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
 }
 
+// Ohne manuelle Wahl folgt die App dem Hell/Dunkel-Modus des Geräts -- auch live,
+// wenn das Handy abends automatisch umschaltet. Ein Klick auf den Button setzt
+// eine feste Wahl; stimmt die mit dem System überein, wird sie wieder verworfen
+// (zurück zu "automatisch").
+const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+function savedTheme() { try { return localStorage.getItem('ht-theme'); } catch (e) { return null; } }
+
+systemDark.addEventListener('change', (e) => {
+  if (!savedTheme()) applyTheme(e.matches ? 'dark' : 'light');
+});
+
 document.getElementById('themeToggle').addEventListener('click', () => {
   const next = currentTheme() === 'dark' ? 'light' : 'dark';
-  if (next === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-  else document.documentElement.removeAttribute('data-theme');
-  localStorage.setItem('ht-theme', next);
-  updateThemeToggleIcon();
-  renderAllCharts();
+  const systemTheme = systemDark.matches ? 'dark' : 'light';
+  try {
+    if (next === systemTheme) localStorage.removeItem('ht-theme');
+    else localStorage.setItem('ht-theme', next);
+  } catch (e) {}
+  applyTheme(next);
 });
 
 updateThemeToggleIcon();
 
 const todayEl = document.getElementById('today');
 todayEl.textContent = new Date().toLocaleDateString('de-AT', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-document.querySelector('#entryForm input[name=entry_date]').value = new Date().toISOString().slice(0,10);
-document.querySelector('#labForm input[name=entry_date]').value = new Date().toISOString().slice(0,10);
+document.querySelector('#entryForm input[name=entry_date]').value = todayIso();
+document.querySelector('#labForm input[name=entry_date]').value = todayIso();
 
 let goals = {};
 let data = [];
@@ -382,16 +421,20 @@ document.getElementById('goalsSaveBtn').addEventListener('click', async () => {
   const weight = document.getElementById('goalWeight').value;
   const bodyFat = document.getElementById('goalBodyFat').value;
   statusEl.textContent = 'speichert…';
-  const res = await fetch('/api/goals', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      weight_kg: weight === '' ? null : Number(weight),
-      body_fat_pct: bodyFat === '' ? null : Number(bodyFat),
-    }),
-  });
-  statusEl.textContent = res.ok ? 'gespeichert.' : 'Fehler.';
-  setTimeout(() => statusEl.textContent = '', 2000);
+  try {
+    const res = await fetch('/api/goals', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        weight_kg: weight === '' ? null : Number(weight),
+        body_fat_pct: bodyFat === '' ? null : Number(bodyFat),
+      }),
+    });
+    statusEl.textContent = res.ok ? 'gespeichert.' : 'Fehler: ' + await readError(res);
+  } catch (e) {
+    statusEl.textContent = 'Fehler: keine Verbindung.';
+  }
+  setTimeout(() => statusEl.textContent = '', 3000);
   await loadGoals();
 });
 
@@ -448,21 +491,39 @@ async function loadLabs() {
 }
 
 function renderVitals() {
-  const latest = data[0];
-  const prev = data[1];
   const merged = buildMergedWeightSeries();
-  const mLatest = merged[0];
-  const mPrev = merged[1];
   const el = document.getElementById('vitals');
-  if (!latest && !mLatest) { el.innerHTML = '<div class="empty" style="padding:16px">Noch keine Einträge — leg unten los.</div>'; return; }
+  if (!data.length && !merged.length && !(syncData.bp || []).length) { el.innerHTML = '<div class="empty" style="padding:16px">Noch keine Einträge — leg unten los.</div>'; return; }
+
+  // je Kennzahl den letzten Tag MIT Wert (und den davor) statt stur die letzten
+  // zwei Tage -- sonst zeigt die Karte "—", sobald der neueste Eintrag z.B. nur
+  // ein Gewicht ohne Körperfett enthält
+  const lastTwo = (series, key) => series.filter(d => d[key] != null).slice(0, 2).map(d => d[key]);
+  const [wNow, wPrev] = lastTwo(merged, 'weight_kg');
+  const [fNow, fPrev] = lastTwo(merged, 'body_fat_pct');
+  const [mNow, mPrevV] = lastTwo(merged, 'muscle_pct');
+  const [hNow, hPrev] = lastTwo(merged, 'body_water_pct');
+
+  // Blutdruck: neueste Messung aus manuellen Einträgen ODER Health Sync
+  const manualBp = data.find(d => d.bp_systolic && d.bp_diastolic);
+  const syncBp = (syncData.bp || [])[0];
+  const bp = (syncBp && (!manualBp || syncBp.entry_date >= manualBp.entry_date))
+    ? `${Math.round(syncBp.systolic)}/${Math.round(syncBp.diastolic)}`
+    : manualBp ? `${manualBp.bp_systolic}/${manualBp.bp_diastolic}` : null;
+
+  // Puls: neuester manueller Wert oder Ruhepuls aus Health Sync
+  const manualPulse = data.find(d => d.pulse != null);
+  const syncPulse = (syncData.pulse || []).find(p => p.resting_bpm != null);
+  const pulse = (syncPulse && (!manualPulse || syncPulse.entry_date >= manualPulse.entry_date))
+    ? Math.round(syncPulse.resting_bpm) : manualPulse?.pulse ?? null;
 
   const rows = [
-    { label: 'Gewicht', v: mLatest?.weight_kg, unit: 'kg', pv: mPrev?.weight_kg, lowerBetter: true, goal: goals.weight_kg },
-    { label: 'Körperfett', v: mLatest?.body_fat_pct, unit: '%', pv: mPrev?.body_fat_pct, lowerBetter: true, goal: goals.body_fat_pct },
-    { label: 'Muskel', v: mLatest?.muscle_pct, unit: '%', pv: mPrev?.muscle_pct, lowerBetter: false },
-    { label: 'Körperwasser', v: mLatest?.body_water_pct, unit: '%', pv: mPrev?.body_water_pct, lowerBetter: false },
-    { label: 'Blutdruck', v: latest?.bp_systolic && latest?.bp_diastolic ? `${latest.bp_systolic}/${latest.bp_diastolic}` : null, unit: 'mmHg' },
-    { label: 'Puls', v: latest?.pulse, unit: 'bpm' },
+    { label: 'Gewicht', v: wNow, unit: 'kg', pv: wPrev, lowerBetter: true, goal: goals.weight_kg },
+    { label: 'Körperfett', v: fNow, unit: '%', pv: fPrev, lowerBetter: true, goal: goals.body_fat_pct },
+    { label: 'Muskel', v: mNow, unit: '%', pv: mPrevV, lowerBetter: false },
+    { label: 'Körperwasser', v: hNow, unit: '%', pv: hPrev, lowerBetter: false },
+    { label: 'Blutdruck', v: bp, unit: 'mmHg' },
+    { label: 'Puls', v: pulse, unit: 'bpm' },
   ];
 
   el.innerHTML = rows.map(r => {
@@ -470,7 +531,8 @@ function renderVitals() {
     if (r.pv != null && r.v != null && typeof r.v === 'number') {
       const diff = (r.v - r.pv).toFixed(1);
       const improving = r.lowerBetter ? diff < 0 : diff > 0;
-      delta = `<div class="delta ${improving ? 'neg' : 'pos'}">${diff > 0 ? '+' : ''}${diff} vs. letzter Eintrag</div>`;
+      const cls = Number(diff) === 0 ? '' : improving ? 'neg' : 'pos';
+      delta = `<div class="delta ${cls}">${diff > 0 ? '+' : ''}${diff} vs. vorherige Messung</div>`;
     }
     let goalHint = '';
     if (r.goal != null && r.v != null && typeof r.v === 'number') {
@@ -713,7 +775,7 @@ function renderLipidsChart() {
 function renderLog() {
   const wrap = document.getElementById('logWrap');
   if (!data.length) { wrap.innerHTML = '<div class="empty">Noch keine Einträge.</div>'; return; }
-  wrap.innerHTML = `<table class="log"><thead><tr>
+  wrap.innerHTML = `<div class="table-scroll"><table class="log"><thead><tr>
     <th>Datum</th><th>Gewicht</th><th>Fett %</th><th>Muskel %</th><th>Wasser %</th><th>RR</th><th>Puls</th><th>Notiz</th><th></th>
   </tr></thead><tbody>
   ${data.map(d => `<tr>
@@ -727,12 +789,13 @@ function renderLog() {
     <td class="note">${escapeHtml(d.note)}</td>
     <td><button class="edit" data-date="${d.entry_date}">bearbeiten</button><button class="del" data-date="${d.entry_date}">löschen</button></td>
   </tr>`).join('')}
-  </tbody></table>`;
+  </tbody></table></div>`;
 
   wrap.querySelectorAll('.del').forEach(btn => {
     btn.addEventListener('click', async () => {
       if (!confirm(`Eintrag vom ${btn.dataset.date} wirklich löschen?`)) return;
-      await fetch(`/api/metrics?date=${btn.dataset.date}`, { method: 'DELETE' });
+      const res = await fetch(`/api/metrics?date=${btn.dataset.date}`, { method: 'DELETE' }).catch(() => null);
+      if (!res || !res.ok) alert('Löschen fehlgeschlagen' + (res ? ': ' + await readError(res) : ' (keine Verbindung)'));
       loadData();
     });
   });
@@ -769,7 +832,7 @@ function resetEntryForm() {
   const form = document.getElementById('entryForm');
   form.reset();
   form.entry_date.readOnly = false;
-  form.entry_date.value = new Date().toISOString().slice(0, 10);
+  form.entry_date.value = todayIso();
   document.getElementById('entrySaveBtn').textContent = 'Speichern';
   document.getElementById('entryCancelBtn').style.display = 'none';
 }
@@ -779,7 +842,7 @@ document.getElementById('entryCancelBtn').addEventListener('click', resetEntryFo
 function renderLabLog() {
   const wrap = document.getElementById('labLogWrap');
   if (!labs.length) { wrap.innerHTML = '<div class="empty">Noch keine Blutwerte erfasst.</div>'; return; }
-  wrap.innerHTML = `<table class="log"><thead><tr>
+  wrap.innerHTML = `<div class="table-scroll"><table class="log"><thead><tr>
     <th>Datum</th><th>Test</th><th>Wert</th><th>Einheit</th><th>Notiz</th><th></th>
   </tr></thead><tbody>
   ${labs.map(l => `<tr>
@@ -790,14 +853,15 @@ function renderLabLog() {
     <td class="note">${escapeHtml(l.note)}</td>
     <td><button class="edit" data-id="${l.id}">bearbeiten</button><button class="del" data-id="${l.id}">löschen</button></td>
   </tr>`).join('')}
-  </tbody></table>`;
+  </tbody></table></div>`;
 
   wrap.querySelectorAll('.del').forEach(btn => {
     btn.addEventListener('click', async () => {
       const row = labs.find(l => l.id === Number(btn.dataset.id));
       const label = row ? `${row.test_name} vom ${row.entry_date}` : 'diesen Blutwert';
       if (!confirm(`${label} wirklich löschen?`)) return;
-      await fetch(`/api/labs?id=${btn.dataset.id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/labs?id=${btn.dataset.id}`, { method: 'DELETE' }).catch(() => null);
+      if (!res || !res.ok) alert('Löschen fehlgeschlagen' + (res ? ': ' + await readError(res) : ' (keine Verbindung)'));
       loadLabs();
     });
   });
@@ -826,7 +890,7 @@ function resetLabForm() {
   const form = document.getElementById('labForm');
   form.reset();
   form.id.value = '';
-  form.entry_date.value = new Date().toISOString().slice(0, 10);
+  form.entry_date.value = todayIso();
   document.getElementById('labSaveBtn').textContent = 'Blutwert speichern';
   document.getElementById('labCancelBtn').style.display = 'none';
 }
@@ -870,15 +934,27 @@ document.getElementById('entryForm').addEventListener('submit', async (e) => {
   }
   const kgWarning = skipped.length ? ` (${skipped.join(', ')} ohne Gewicht für diesen Tag nicht gespeichert)` : '';
 
+  // Bearbeiten-Modus: Tag komplett ersetzen, damit geleerte Felder wirklich
+  // gelöscht werden (normales Speichern ergänzt nur fehlende Werte)
+  if (e.target.entry_date.readOnly) payload.replace = true;
+
   statusEl.textContent = 'speichert…';
   saveBtn.disabled = true;
-  const res = await fetch('/api/metrics', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  let res = null;
+  try {
+    res = await fetch('/api/metrics', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) { /* res bleibt null -> keine Verbindung */ }
   saveBtn.disabled = false;
-  statusEl.textContent = (res.ok ? 'gespeichert.' : 'Fehler beim Speichern.') + kgWarning;
+  if (!res || !res.ok) {
+    // Eingaben stehen lassen, damit nichts neu getippt werden muss
+    statusEl.textContent = 'Fehler beim Speichern: ' + (res ? await readError(res) : 'keine Verbindung');
+    return;
+  }
+  statusEl.textContent = 'gespeichert.' + kgWarning;
   setTimeout(() => statusEl.textContent = '', kgWarning ? 4000 : 2000);
   resetEntryForm();
   loadData();
@@ -901,13 +977,20 @@ document.getElementById('labForm').addEventListener('submit', async (e) => {
   const saveBtn = document.getElementById('labSaveBtn');
   statusEl.textContent = 'speichert…';
   saveBtn.disabled = true;
-  const res = await fetch('/api/labs', {
-    method: id ? 'PUT' : 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  let res = null;
+  try {
+    res = await fetch('/api/labs', {
+      method: id ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) { /* res bleibt null -> keine Verbindung */ }
   saveBtn.disabled = false;
-  statusEl.textContent = res.ok ? 'gespeichert.' : 'Fehler beim Speichern.';
+  if (!res || !res.ok) {
+    statusEl.textContent = 'Fehler beim Speichern: ' + (res ? await readError(res) : 'keine Verbindung');
+    return;
+  }
+  statusEl.textContent = 'gespeichert.';
   setTimeout(() => statusEl.textContent = '', 2000);
   resetLabForm();
   loadLabs();
@@ -929,10 +1012,12 @@ async function loadSyncData() {
   try { renderSyncCharts(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
 }
 
+// einzeln abgesichert: der Schlaf-Zeitstrahl ist reines HTML und soll auch dann
+// erscheinen, wenn Chart.js (CDN) nicht geladen werden konnte
 function renderSyncCharts() {
-  renderStepsChart();
-  renderSleepChart();
-  renderCombinedBPChart();
+  try { renderStepsChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
+  try { renderSleepChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
+  try { renderCombinedBPChart(); } catch (e) { console.error('Chart-Rendering fehlgeschlagen', e); }
 }
 
 function renderStepsChart() {
@@ -977,14 +1062,18 @@ function renderSleepChart() {
   const nights = syncData.nights || [];
   if (!nights.length) { wrap.innerHTML = '<div class="empty">Noch keine Schlafdaten synchronisiert.</div>'; return; }
 
-  const fmtTime = (ms) => new Date(ms).toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' });
-  const fmtDate = (ms) => new Date(ms).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' });
+  // Health Sync liefert lokale Uhrzeiten ohne Zeitzone, der Server (läuft in UTC)
+  // macht daraus Zeitstempel "als wäre es UTC". Deshalb hier ebenfalls in UTC
+  // formatieren -- mit der Browser-Zeitzone wären alle Schlafzeiten um 1-2 Stunden
+  // verschoben (23:00 ins Bett würde als 01:00 angezeigt).
+  const fmtTime = (ms) => new Date(ms).toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+  const fmtDate = (ms) => new Date(ms).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', timeZone: 'UTC' });
 
   // je Nacht ein eigener Referenzpunkt (18 Uhr des Bettgeh-Tages), damit dieselbe
   // Uhrzeit bei jeder Nacht auf denselben x-Wert fällt, auch über Mitternacht hinweg
   const toXHours = (night, ms) => {
     const bedDate = new Date(night.bedtime);
-    const ref = new Date(bedDate.getFullYear(), bedDate.getMonth(), bedDate.getDate(), SLEEP_X_REFERENCE_HOUR, 0, 0).getTime();
+    const ref = Date.UTC(bedDate.getUTCFullYear(), bedDate.getUTCMonth(), bedDate.getUTCDate(), SLEEP_X_REFERENCE_HOUR, 0, 0);
     return (ms - ref) / 3600000;
   };
 
@@ -1028,7 +1117,7 @@ function renderSleepChart() {
 function renderActivitiesLog() {
   const wrap = document.getElementById('activitiesLogWrap');
   if (!syncData.activities.length) { wrap.innerHTML = '<div class="empty">Noch keine Aktivitäten synchronisiert.</div>'; return; }
-  wrap.innerHTML = `<table class="log"><thead><tr>
+  wrap.innerHTML = `<div class="table-scroll"><table class="log"><thead><tr>
     <th>Datum</th><th>Zeit</th><th>Typ</th><th>Dauer</th><th>Distanz</th><th>Kalorien</th><th>Ø Puls</th><th>Max Puls</th>
   </tr></thead><tbody>
   ${syncData.activities.map(a => `<tr>
@@ -1041,7 +1130,7 @@ function renderActivitiesLog() {
     <td>${a.avg_hr != null ? Math.round(a.avg_hr) : '—'}</td>
     <td>${a.max_hr != null ? Math.round(a.max_hr) : '—'}</td>
   </tr>`).join('')}
-  </tbody></table>`;
+  </tbody></table></div>`;
 }
 
 document.getElementById('syncBtn').addEventListener('click', async () => {
@@ -1049,20 +1138,29 @@ document.getElementById('syncBtn').addEventListener('click', async () => {
   const statusEl = document.getElementById('syncStatus');
   btn.disabled = true;
   statusEl.textContent = 'synchronisiert…';
+  const LABELS = { puls: 'Puls', schritte: 'Schritte', schlaf: 'Schlaf', aktivitaeten: 'Aktivitäten', gewicht: 'Gewicht', blutdruck: 'Blutdruck' };
+  const totals = {};
+  const problems = {};
   try {
-    const res = await fetch('/api/sync', { method: 'POST' });
-    const data = await res.json();
-    if (!res.ok) {
-      statusEl.textContent = 'Fehler: ' + (data.error || res.status);
-    } else {
-      const parts = Object.entries(data.summary).map(([key, v]) => {
-        if (v.error) return `${key}: Fehler`;
-        if (v.skipped) return `${key}: nicht geteilt`;
-        return `${key}: +${v.newFiles || 0}`;
-      });
-      statusEl.textContent = parts.join(' · ');
-      await loadSyncData();
+    // Der Server lädt pro Aufruf nur eine begrenzte Zahl Dateien (Cloudflare-
+    // Limit) und meldet den Rest als "remaining" -- so lange wiederholen, bis
+    // alles da ist (mit Obergrenze, falls etwas hängt)
+    for (let round = 1; round <= 20; round++) {
+      const res = await fetch('/api/sync', { method: 'POST' });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) { statusEl.textContent = 'Fehler: ' + (result.error || res.status); break; }
+      for (const [key, v] of Object.entries(result.summary)) {
+        if (v.error) problems[key] = 'Fehler';
+        else if (v.skipped) problems[key] = 'nicht geteilt';
+        else totals[key] = (totals[key] || 0) + (v.newFiles || 0);
+      }
+      if (!result.remaining) break;
+      statusEl.textContent = `synchronisiert… noch ${result.remaining} Dateien`;
     }
+    const parts = Object.keys(LABELS).filter(k => k in totals || k in problems).map(k =>
+      problems[k] ? `${LABELS[k]}: ${problems[k]}` : `${LABELS[k]}: +${totals[k]}`);
+    if (parts.length) statusEl.textContent = parts.join(' · ');
+    await loadSyncData();
   } catch (e) {
     statusEl.textContent = 'Fehler: ' + e.message;
   }
