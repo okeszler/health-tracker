@@ -1,0 +1,14 @@
+name = "oliver-health-tracker-sync"
+main = "index.js"
+compatibility_date = "2024-09-01"
+workers_dev = false
+
+# 2x täglich (UTC): 04:17 und 16:17 -> 06:17/18:17 Sommerzeit, 05:17/17:17 Winterzeit
+[triggers]
+crons = ["17 4,16 * * *"]
+
+[vars]
+SYNC_URL = "https://oliver-health-tracker.pages.dev/api/sync"
+
+# Secret (derselbe Wert wie SYNC_TOKEN im Pages-Projekt):
+#   npx wrangler secret put SYNC_TOKEN --config cron-worker/wrangler.toml

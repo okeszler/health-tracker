@@ -3,16 +3,36 @@
 Cloudflare Pages + D1, gleiches Muster wie die anderen Cloudflare-Apps
 (kratos-gymtracker, dagoberts-geldspeicher, ...).
 
+Live: https://oliver-health-tracker.pages.dev
+
+## Bereiche der App
+Navigation über die Tab-Leiste (am Handy unten, am Desktop oben):
+- **Übersicht** — aktuelle Werte (Gewicht, Körperfett, Muskel, Körperwasser, Blutdruck mit
+  Ampel nach ESC/ESH-Einstufung, Ruhepuls), Trend der letzten 7 Tage vs. Vorwoche, Aktualität
+  der Health-Sync-Daten, Ziele
+- **Erfassen** — Vitals bzw. Blutwerte eintragen (umschaltbar), jeweils mit Log zum
+  Bearbeiten/Löschen
+- **Verlauf** — alle Charts auf echter Zeitachse, Zeitraum 30 Tage / 90 Tage / 1 Jahr / Alles
+- **Aktivität** — Health Sync (manuell + automatisch), Schritte mit 7-Tage-Schnitt,
+  Schlaf-Zeitstrahl, Aktivitäten-Log
+
+Menü (⋯ oben rechts): Vitals/Blutwerte als CSV exportieren (Excel-tauglich), Abmelden.
+Hell/Dunkel folgt automatisch dem Gerät; der Button daneben setzt eine feste Wahl.
+
 ## Struktur
-- `public/index.html` — komplettes Frontend (Dashboard, Formulare, Charts, Logs)
+- `public/index.html` — komplettes Frontend (Seiten, Formulare, Charts, Logs)
+- `public/sw.js` — Service Worker (Installieren als App, Offline-Fallback der App-Shell)
 - `public/manifest.json`, `public/favicon.ico`, `public/icons/` — App-Icons/Favicon
-- `functions/_middleware.js` — Passwortschutz für die ganze App (siehe unten)
+- `functions/_middleware.js` — PIN-/Passwortschutz für die ganze App (siehe unten)
+- `functions/api/export.js` — CSV-Export (Vitals, Blutwerte)
+- `cron-worker/` — kleiner Worker, der den Health-Sync 2× täglich automatisch anstößt
 - `functions/api/metrics.js` — CRUD für tägliche Vitals (Gewicht, Körperzusammensetzung, Blutdruck, Puls)
 - `functions/api/labs.js` — CRUD für Laborwerte (freier Testname + Einheit, rückwirkend erfassbar)
 - `functions/api/goals.js` — Zielwerte (Gewicht, Körperfett)
 - `functions/api/sync.js`, `functions/api/sync-data.js`, `functions/api/_google.js` — Health-Sync-Import
   aus Google Drive (siehe unten)
-- `schema.sql` — D1-Schema (für Neuaufsetzen)
+- `schema.sql` — vollständiges D1-Schema: für eine neue Datenbank reicht diese eine Datei
+- `migration_*.sql` — nur für ältere, bestehende Installationen (in `schema.sql` bereits enthalten):
 - `migration_v2.sql` — nur nötig, falls du das ursprüngliche v1-Schema (mit Wasserzufuhr statt
   Blutwerten/Muskel%/Körperwasser%) schon deployed hattest
 - `migration_sync.sql` — Tabellen für den Health-Sync-Import (Schritte/Puls/Schlaf/Aktivitäten/Gewicht)
@@ -32,10 +52,13 @@ Cloudflare Pages + D1, gleiches Muster wie die anderen Cloudflare-Apps
   werden automatisch in % umgerechnet
 - `wrangler.toml`, `package.json` — Konfiguration
 
-## Passwortschutz
+## PIN-/Passwortschutz
 
-Die App zeigt sensible Gesundheitsdaten, deshalb ist sie standardmäßig mit einem
-gemeinsamen Passwort geschützt (einfacher Cookie-Login, kein Benutzerkonto nötig).
+Die App zeigt sensible Gesundheitsdaten, deshalb ist sie mit einem gemeinsamen
+Passwort geschützt (Cookie-Login, 30 Tage gültig, kein Benutzerkonto nötig).
+Besteht `APP_PASSWORD` nur aus Ziffern, zeigt die Login-Seite ein PIN-Tastenfeld, das
+automatisch absendet, sobald alle Stellen eingetippt sind; sonst ein normales
+Passwortfeld. Nach 8 Fehlversuchen in 15 Minuten wird die IP vorübergehend gesperrt.
 Ohne gesetztes Passwort bleibt die App offen — für den ersten Deploy also am besten
 gleich das Secret setzen (siehe Deploy-Schritte unten, "Passwort setzen").
 
@@ -160,5 +183,27 @@ Drive-Zugriff:
 
 Jede Datei wird nur einmal verarbeitet (Tracking in der Tabelle `sync_files`) — ein erneuter Klick
 auf "Jetzt synchronisieren" holt nur neu hinzugekommene Dateien, nichts wird doppelt gezählt.
-Aktuell ist der Sync manuell per Button; ein täglicher Cron-Trigger (wie bei
-`dagoberts-geldspeicher/cron-worker`) lässt sich bei Bedarf ergänzen.
+Pro Aufruf werden höchstens 30 Dateien geladen (Cloudflare-Limit für externe Anfragen);
+liegen mehr vor, wiederholt der Button bzw. der Cron-Worker den Aufruf automatisch.
+
+### Automatischer Sync
+Aktuell: Die App synchronisiert beim Öffnen automatisch im Hintergrund (höchstens alle
+3 Stunden pro Gerät).
+
+Vorbereitet, aber noch ohne Zeitplan: `cron-worker/`. Der Free-Tarif erlaubt nur 5
+Cron-Trigger pro Account, die alle durch andere Apps belegt sind. Wird ein Platz frei
+(oder Workers Paid), nur noch den Zeitplan setzen:
+`npx wrangler deploy --config cron-worker/wrangler.toml` (Worker und `SYNC_TOKEN` sind
+schon eingerichtet).
+
+Pages Functions haben keine Cron-Trigger, deshalb ruft der Worker
+`oliver-health-tracker-sync` 2× täglich (06:17/18:17 Sommerzeit) `POST /api/sync` auf.
+Er authentifiziert sich mit dem Secret `SYNC_TOKEN`, das im Worker **und** im
+Pages-Projekt mit demselben (zufälligen) Wert gesetzt sein muss — der Token erlaubt
+ausschließlich den Sync, keinen Zugriff auf Daten.
+
+```powershell
+npx wrangler deploy --config cron-worker/wrangler.toml
+npx wrangler secret put SYNC_TOKEN --config cron-worker/wrangler.toml
+npx wrangler pages secret put SYNC_TOKEN --project-name=oliver-health-tracker
+```

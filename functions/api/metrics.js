@@ -23,12 +23,22 @@ const RANGES = {
   pulse: [20, 250],
 };
 
+const LABELS = {
+  weight_kg: "Gewicht (kg)",
+  body_fat_pct: "Körperfett (%)",
+  muscle_pct: "Muskel (%)",
+  body_water_pct: "Körperwasser (%)",
+  bp_systolic: "RR systolisch",
+  bp_diastolic: "RR diastolisch",
+  pulse: "Puls",
+};
+
 function validateRanges(body) {
   for (const [field, [min, max]] of Object.entries(RANGES)) {
     const v = body[field];
     if (v === null || v === undefined) continue;
     if (typeof v !== "number" || isNaN(v) || v < min || v > max) {
-      return `${field} sollte zwischen ${min} und ${max} liegen`;
+      return `${LABELS[field]} sollte zwischen ${min} und ${max} liegen`;
     }
   }
   return null;
@@ -57,7 +67,7 @@ export async function onRequestPost({ request, env }) {
   } = body;
 
   if (!entry_date || !/^\d{4}-\d{2}-\d{2}$/.test(entry_date)) {
-    return new Response(JSON.stringify({ error: "entry_date fehlt oder ungültig (YYYY-MM-DD)" }), { status: 400 });
+    return new Response(JSON.stringify({ error: "Datum fehlt oder ist ungültig" }), { status: 400 });
   }
 
   const rangeError = validateRanges({ weight_kg, body_fat_pct, muscle_pct, body_water_pct, bp_systolic, bp_diastolic, pulse });
