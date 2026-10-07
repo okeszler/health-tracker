@@ -40,6 +40,9 @@ function loginPage(error) {
     --ink: #FAF3E9; --surface: #FFFFFF; --line: #E9D6BC;
     --text: #3A2A1E; --text-dim: #9C7F63; --terracotta: #D24136; --honey: #EB8A3E;
   }
+  @media (prefers-color-scheme: dark) {
+    :root { color-scheme: dark; --ink: #1C140F; --surface: #241A13; --line: #3D2C20; --text: #F3E9DC; --text-dim: #B79A80; --terracotta: #E8564A; }
+  }
   * { box-sizing: border-box; }
   body {
     margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
@@ -71,7 +74,7 @@ function loginPage(error) {
     <h1>Anmelden</h1>
     <div class="error" id="loginError" style="${error ? "" : "display:none"}">${error || ""}</div>
     <label for="password">Passwort</label>
-    <input type="password" id="password" name="password" autofocus required>
+    <input type="password" id="password" name="password" autocomplete="current-password" autofocus required>
     <button type="submit">Einloggen</button>
   </form>
   <script>
@@ -79,11 +82,18 @@ function loginPage(error) {
       e.preventDefault();
       const password = document.getElementById('password').value;
       const errEl = document.getElementById('loginError');
-      const res = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
-      });
+      let res;
+      try {
+        res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+      } catch (err) {
+        errEl.textContent = 'Keine Verbindung — bitte erneut versuchen.';
+        errEl.style.display = 'block';
+        return;
+      }
       if (res.ok) {
         location.reload();
       } else {
@@ -110,6 +120,8 @@ export async function onRequest(context) {
     const ip = request.headers.get("CF-Connecting-IP") || "unknown";
 
     if (env.DB) {
+      // alte Fehlversuche aufräumen, sonst wächst die Tabelle unbegrenzt
+      await env.DB.prepare("DELETE FROM login_attempts WHERE attempted_at < datetime('now', '-1 day')").run();
       const { results } = await env.DB.prepare(
         `SELECT COUNT(*) AS n FROM login_attempts WHERE ip = ? AND attempted_at > datetime('now', ?)`
       )
@@ -158,6 +170,7 @@ export async function onRequest(context) {
   const error = url.searchParams.get("error") ? "Falsches Passwort — bitte erneut versuchen." : null;
   return new Response(loginPage(error), {
     status: 200,
-    headers: { "Content-Type": "text/html; charset=utf-8" },
+    // X-Login-Page: der Service Worker soll die Login-Seite nicht als App-Shell cachen
+    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Login-Page": "1" },
   });
 }

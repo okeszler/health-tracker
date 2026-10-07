@@ -5,6 +5,10 @@
 //                                      einzelne Werte nachtragen, ohne die anderen zu
 //                                      löschen. Um einen Wert wirklich zu löschen, den
 //                                      ganzen Tageseintrag löschen und neu anlegen.)
+//                                      Mit {"replace": true} (Bearbeiten-Modus im
+//                                      Formular) wird der Tag dagegen komplett mit den
+//                                      gesendeten Werten überschrieben -- geleerte
+//                                      Felder werden dann wirklich gelöscht.
 // DELETE /api/metrics?date=YYYY-MM-DD -> Eintrag löschen
 
 // grobe Plausibilitätsgrenzen, nicht medizinisch exakt -- sollen nur Tippfehler
@@ -49,6 +53,7 @@ export async function onRequestPost({ request, env }) {
     bp_diastolic = null,
     pulse = null,
     note = null,
+    replace = false,
   } = body;
 
   if (!entry_date || !/^\d{4}-\d{2}-\d{2}$/.test(entry_date)) {
@@ -60,18 +65,16 @@ export async function onRequestPost({ request, env }) {
     return new Response(JSON.stringify({ error: rangeError }), { status: 400 });
   }
 
+  const fields = ["weight_kg", "body_fat_pct", "muscle_pct", "body_water_pct", "bp_systolic", "bp_diastolic", "pulse", "note"];
+  const updateSet = fields
+    .map((f) => (replace ? `${f} = excluded.${f}` : `${f} = COALESCE(excluded.${f}, metrics.${f})`))
+    .join(",\n       ");
+
   await env.DB.prepare(
     `INSERT INTO metrics (entry_date, weight_kg, body_fat_pct, muscle_pct, body_water_pct, bp_systolic, bp_diastolic, pulse, note)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(entry_date) DO UPDATE SET
-       weight_kg = COALESCE(excluded.weight_kg, metrics.weight_kg),
-       body_fat_pct = COALESCE(excluded.body_fat_pct, metrics.body_fat_pct),
-       muscle_pct = COALESCE(excluded.muscle_pct, metrics.muscle_pct),
-       body_water_pct = COALESCE(excluded.body_water_pct, metrics.body_water_pct),
-       bp_systolic = COALESCE(excluded.bp_systolic, metrics.bp_systolic),
-       bp_diastolic = COALESCE(excluded.bp_diastolic, metrics.bp_diastolic),
-       pulse = COALESCE(excluded.pulse, metrics.pulse),
-       note = COALESCE(excluded.note, metrics.note)`
+       ${updateSet}`
   )
     .bind(entry_date, weight_kg, body_fat_pct, muscle_pct, body_water_pct, bp_systolic, bp_diastolic, pulse, note)
     .run();

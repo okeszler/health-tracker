@@ -41,7 +41,12 @@ function toSqlDateTime(ms) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-// Ein SELECT über alle Nächte statt einer Query pro Nacht: die Bettzeit-Fenster
+// D1 erlaubt max. 100 gebundene Parameter pro Query, jede Nacht braucht 2 --
+// deshalb in Blöcken zu je 45 Nächten statt alles in einer Query (sonst bricht
+// /api/sync-data ab ~50 synchronisierten Nächten komplett mit Fehler ab).
+const NIGHTS_PER_QUERY = 45;
+
+// Ein SELECT pro Block statt einer Query pro Nacht: die Bettzeit-Fenster
 // werden per nummerierten Parametern (?1/?2, ?3/?4, ...) sowohl im CASE (zur
 // Zuordnung jeder Pulsmessung zu ihrer Nacht) als auch im WHERE (zum Filtern)
 // wiederverwendet.
@@ -49,25 +54,29 @@ async function computeRestingHr(env, nights) {
   const eligible = nights.filter((n) => n.waketime - n.bedtime >= NIGHT_MIN_HOURS * 3600 * 1000);
   if (!eligible.length) return {};
 
-  const caseWhen = [];
-  const whereOr = [];
-  const binds = [];
-  eligible.forEach((n, i) => {
-    const p1 = i * 2 + 1;
-    const p2 = i * 2 + 2;
-    caseWhen.push(`WHEN (entry_date || ' ' || reading_time) BETWEEN ?${p1} AND ?${p2} THEN ${i}`);
-    whereOr.push(`(entry_date || ' ' || reading_time) BETWEEN ?${p1} AND ?${p2}`);
-    binds.push(toSqlDateTime(n.bedtime), toSqlDateTime(n.waketime));
-  });
-
-  const { results } = await env.DB.prepare(
-    `SELECT CASE ${caseWhen.join(" ")} END AS night_idx, AVG(bpm) AS avg_bpm, COUNT(*) AS samples
-     FROM sync_pulse_readings
-     WHERE ${whereOr.join(" OR ")}
-     GROUP BY night_idx`
-  )
-    .bind(...binds)
-    .all();
+  const statements = [];
+  for (let offset = 0; offset < eligible.length; offset += NIGHTS_PER_QUERY) {
+    const chunk = eligible.slice(offset, offset + NIGHTS_PER_QUERY);
+    const caseWhen = [];
+    const whereOr = [];
+    const binds = [];
+    chunk.forEach((n, i) => {
+      const p1 = i * 2 + 1;
+      const p2 = i * 2 + 2;
+      caseWhen.push(`WHEN (entry_date || ' ' || reading_time) BETWEEN ?${p1} AND ?${p2} THEN ${offset + i}`);
+      whereOr.push(`(entry_date || ' ' || reading_time) BETWEEN ?${p1} AND ?${p2}`);
+      binds.push(toSqlDateTime(n.bedtime), toSqlDateTime(n.waketime));
+    });
+    statements.push(
+      env.DB.prepare(
+        `SELECT CASE ${caseWhen.join(" ")} END AS night_idx, AVG(bpm) AS avg_bpm, COUNT(*) AS samples
+         FROM sync_pulse_readings
+         WHERE ${whereOr.join(" OR ")}
+         GROUP BY night_idx`
+      ).bind(...binds)
+    );
+  }
+  const results = (await env.DB.batch(statements)).flatMap((r) => r.results);
 
   const restingByDate = {};
   for (const row of results) {
@@ -116,7 +125,6 @@ export async function onRequestGet({ env }) {
       avg_bpm: p.samples ? Math.round((p.sum_bpm / p.samples) * 10) / 10 : null,
       resting_bpm: restingByDate[p.entry_date]?.resting_bpm ?? null,
     })),
-    sleep: sleep.results,
     nights: nights.map((n) => ({
       bedtime: n.bedtime,
       waketime: n.waketime,
