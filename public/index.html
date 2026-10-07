@@ -1669,6 +1669,7 @@ async function runSync({ quiet = false } = {}) {
   const LABELS = { puls: 'Puls', schritte: 'Schritte', schlaf: 'Schlaf', aktivitaeten: 'Aktivitäten', gewicht: 'Gewicht', blutdruck: 'Blutdruck' };
   const totals = {};
   const problems = {};
+  let budgetHit = false;
   try {
     // Der Server lädt pro Aufruf nur eine begrenzte Zahl Dateien (Cloudflare-
     // Limit) und meldet den Rest als "remaining" -- so lange wiederholen, bis
@@ -1682,6 +1683,7 @@ async function runSync({ quiet = false } = {}) {
         else if (v.skipped) problems[key] = 'nicht geteilt';
         else totals[key] = (totals[key] || 0) + (v.newFiles || 0);
       }
+      if (result.budgetExhausted) { budgetHit = result.pendingTomorrow || true; break; }
       if (!result.remaining) break;
       statusEl.textContent = `synchronisiert… noch ${result.remaining} Dateien`;
     }
@@ -1689,7 +1691,10 @@ async function runSync({ quiet = false } = {}) {
     const parts = Object.keys(LABELS).filter(k => k in problems).map(k => `${LABELS[k]}: ${problems[k]}`);
     const time = new Date().toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' });
     statusEl.textContent = `${quiet ? 'Automatisch' : 'Zuletzt'} ${time}: ` + (newFiles ? `${newFiles} neue Dateien` : 'alles aktuell') + (parts.length ? ' · ' + parts.join(' · ') : '');
-    if (!quiet && !parts.length) toast(newFiles ? `${newFiles} neue Dateien importiert` : 'Alles aktuell');
+    // Tagesbudget erreicht: der Server schützt das gemeinsame D1-Schreiblimit des
+    // Cloudflare-Kontos (auch für die anderen Apps) und macht morgen weiter
+    if (budgetHit) statusEl.textContent += ` · Tageslimit erreicht${typeof budgetHit === 'number' ? `, ${budgetHit} Dateien` : ', Rest'} folgt morgen automatisch`;
+    if (!quiet && !parts.length && !budgetHit) toast(newFiles ? `${newFiles} neue Dateien importiert` : 'Alles aktuell');
     if (quiet && newFiles) toast(`Health Sync: ${newFiles} neue Dateien`);
     try { localStorage.setItem('ht-last-auto-sync', String(Date.now())); } catch (e) {}
     if (newFiles || !quiet) {
